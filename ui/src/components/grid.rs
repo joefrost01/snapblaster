@@ -15,7 +15,8 @@ pub fn SceneGrid(
     let cells = create_memo(move |_| {
         (0u8..64)
             .map(|pos| {
-                let sid = project.grid_assignments.get(&pos.to_string()).cloned();
+                // Convert directly from u8 grid position
+                let sid = project.grid_assignments.get(&pos).cloned();
                 let scene = sid.as_ref().and_then(|id| project.scenes.get(id)).cloned();
                 let active = matches!((active_scene.get(), sid.as_ref()),
                                       (Some(a), Some(id)) if a.id == *id);

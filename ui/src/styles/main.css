@@ -117,3 +117,50 @@ label {
     margin-bottom: 0.5rem;
     font-size: 0.9rem;
 }
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+/* Diagnostic Panel */
+.diagnostic-panel {
+    background-color: var(--dark-bg);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.diagnostic-panel h3 {
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+}
+
+.status-display {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.status-display .label {
+    font-weight: bold;
+    margin-right: 0.5rem;
+}
+
+.status-display .value {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.status-display .value.success {
+    background-color: rgba(0, 255, 0, 0.2);
+}
+
+.status-display .value.error {
+    background-color: rgba(255, 0, 0, 0.2);
+}
+
+.status-display .value.checking {
+    background-color: rgba(255, 255, 0, 0.2);
+}

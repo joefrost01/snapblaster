@@ -4,6 +4,7 @@ use crate::tauri_commands::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use wasm_bindgen::JsCast;
+use crate::console_log;
 
 /* helper: DOM cast */
 fn event_target<T: JsCast>(e: &leptos::ev::Event) -> T {
@@ -24,13 +25,18 @@ pub fn App() -> impl IntoView {
     let (show_ai, set_show_ai) = create_signal(false);
 
     /* ---------- side‑effects ---------- */
-    create_effect(move |_| {
-        spawn_local(async move {
-            match list_midi_devices().await {
-                Ok(d) => set_dev.set(d),
-                Err(e) => set_err.set(Some(e)),
+    // Setup a one-time MIDI device poll on startup
+    spawn_local(async move {
+        match list_midi_devices().await {
+            Ok(d) => {
+                console_log!("Found {} MIDI devices", d.len());
+                set_dev.set(d);
             }
-        });
+            Err(e) => {
+                console_log!("MIDI device error: {}", e);
+                set_err.set(Some(format!("MIDI error: {}", e)));
+            }
+        }
     });
 
     /* ---------- helpers ---------- */
@@ -116,17 +122,20 @@ pub fn App() -> impl IntoView {
                                 <div class="project-info">
                                     <h3>{p.name.clone()}</h3>
                                     <p>{p.description.clone().unwrap_or_default()}</p>
-                                    <button on:click=move |_| set_show_ai.set(true)>"Create AI Scene"</button>
+                                    <button on:click=move |_| set_show_ai.set(true)>"Create AI Scene"</button>
                                 </div>
                             }
                         }}
                     </Show>
 
-                    <h2>"MIDI Devices"</h2>
+                    <h2>"MIDI Devices"</h2>
                     <midi_monitor::MidiDeviceList
                         devices=devices
                         on_connect=Callback::new(move |d| spawn_local(async move {
-                            let _ = connect_controller_command(d).await;
+                            match connect_controller_command(d).await {
+                                Ok(_) => console_log!("Connected to device successfully"),
+                                Err(e) => console_log!("Error connecting: {}", e),
+                            }
                         }))
                     />
                 </aside>

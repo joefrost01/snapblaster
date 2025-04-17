@@ -1,9 +1,9 @@
 {
   "build": {
-    "beforeDevCommand": "pwd && cd ui && trunk serve",
+    "beforeDevCommand": "pwd && cd ui && trunk serve --public-url / --no-autoreload",
     "beforeBuildCommand": "cd ui && trunk build",
     "devPath": "http://localhost:8080",
-    "distDir": "ui/dist",
+    "distDir": "../ui/dist",
     "withGlobalTauri": true
   },
   "package": {

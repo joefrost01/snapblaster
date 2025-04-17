@@ -44,7 +44,7 @@ impl<T: Serialize> CommandResponse<T> {
 
 /// Project management commands
 
-#[command]
+#[tauri::command]
 pub async fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectMeta>, String> {
     let project_manager = state.project_manager.lock().unwrap();
 
@@ -53,7 +53,7 @@ pub async fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectMeta
         .map_err(|e| format!("Failed to list projects: {}", e))
 }
 
-#[command]
+#[tauri::command]
 pub async fn get_active_project(
     state: State<'_, AppState>,
 ) -> Result<CommandResponse<Project>, String> {
@@ -65,7 +65,7 @@ pub async fn get_active_project(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn create_project(
     name: String,
     author: Option<String>,
@@ -82,7 +82,7 @@ pub async fn create_project(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn create_template_project(
     name: String,
     author: Option<String>,
@@ -99,7 +99,7 @@ pub async fn create_template_project(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn load_project(
     id: String,
     state: State<'_, AppState>,
@@ -115,7 +115,7 @@ pub async fn load_project(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn save_project(state: State<'_, AppState>) -> Result<CommandResponse<bool>, String> {
     let project_manager = state.project_manager.lock().unwrap();
 
@@ -128,7 +128,7 @@ pub async fn save_project(state: State<'_, AppState>) -> Result<CommandResponse<
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn import_project(
     path: String,
     state: State<'_, AppState>,
@@ -144,7 +144,7 @@ pub async fn import_project(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn export_project(
     path: String,
     state: State<'_, AppState>,
@@ -160,7 +160,7 @@ pub async fn export_project(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn close_project(state: State<'_, AppState>) -> Result<CommandResponse<bool>, String> {
     let mut project_manager = state.project_manager.lock().unwrap();
 
@@ -175,7 +175,7 @@ pub async fn close_project(state: State<'_, AppState>) -> Result<CommandResponse
 
 /// Scene management commands
 
-#[command]
+#[tauri::command]
 pub async fn create_scene(
     name: String,
     description: Option<String>,
@@ -192,7 +192,7 @@ pub async fn create_scene(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn get_scene(
     id: String,
     state: State<'_, AppState>,
@@ -208,7 +208,7 @@ pub async fn get_scene(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn activate_scene(
     id: String,
     state: State<'_, AppState>,
@@ -224,7 +224,7 @@ pub async fn activate_scene(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn assign_scene_to_grid(
     scene_id: String,
     position: u8,
@@ -241,73 +241,9 @@ pub async fn assign_scene_to_grid(
     }
 }
 
-/// MIDI device commands
-
-#[command]
-pub async fn list_midi_devices(
-    state: State<'_, AppState>,
-) -> Result<CommandResponse<Vec<MidiDevice>>, String> {
-    let project_manager = state.project_manager.lock().unwrap();
-
-    // Get devices through the public method instead of accessing private field
-    match ProjectManager::get_midi_devices() {
-        Ok(devices) => Ok(CommandResponse::success(devices)),
-        Err(e) => Ok(CommandResponse::error(&format!(
-            "Failed to get MIDI devices: {}",
-            e
-        ))),
-    }
-}
-
-#[command]
-pub async fn connect_controller(
-    device_id: String,
-    state: State<'_, AppState>,
-) -> Result<CommandResponse<bool>, String> {
-    let mut project_manager = state.project_manager.lock().unwrap();
-
-    match project_manager.connect_controller(&device_id) {
-        Ok(_) => Ok(CommandResponse::success(true)),
-        Err(e) => Ok(CommandResponse::error(&format!(
-            "Failed to connect controller: {}",
-            e
-        ))),
-    }
-}
-
-#[command]
-pub async fn disconnect_controller(
-    state: State<'_, AppState>,
-) -> Result<CommandResponse<bool>, String> {
-    let mut project_manager = state.project_manager.lock().unwrap();
-
-    match project_manager.disconnect_controller() {
-        Ok(_) => Ok(CommandResponse::success(true)),
-        Err(e) => Ok(CommandResponse::error(&format!(
-            "Failed to disconnect controller: {}",
-            e
-        ))),
-    }
-}
-
-#[command]
-pub async fn send_cc(
-    channel: u8,
-    cc_number: u8,
-    value: u8,
-    state: State<'_, AppState>,
-) -> Result<CommandResponse<bool>, String> {
-    let project_manager = state.project_manager.lock().unwrap();
-
-    match project_manager.send_cc(channel, cc_number, value) {
-        Ok(_) => Ok(CommandResponse::success(true)),
-        Err(e) => Ok(CommandResponse::error(&format!("Failed to send CC: {}", e))),
-    }
-}
-
 /// AI generation commands
 
-#[command]
+#[tauri::command]
 pub async fn generate_scene(
     params: GenerationParams,
     state: State<'_, AppState>,
@@ -323,7 +259,7 @@ pub async fn generate_scene(
     }
 }
 
-#[command]
+#[tauri::command]
 pub async fn save_generated_scene(
     generated_scene: GeneratedScene,
     state: State<'_, AppState>,
@@ -348,4 +284,96 @@ pub async fn save_generated_scene(
         }
         Err(e) => Ok(CommandResponse::error(&format!("No active project: {}", e))),
     }
+}
+
+#[tauri::command]
+pub fn debug_connect_controller(deviceId: String) -> Result<String, String> {
+    // Simple echo command to debug parameter passing - note the camelCase parameter name!
+    Ok(format!("Received device ID: {}", deviceId))
+}
+
+#[tauri::command]
+pub async fn check_backend_status() -> Result<String, String> {
+    Ok(String::from("Backend is running and responsive"))
+}
+
+#[tauri::command]
+pub async fn list_midi_devices(
+    state: State<'_, AppState>,
+) -> Result<CommandResponse<Vec<MidiDevice>>, String> {
+    let project_manager = state.project_manager.lock().unwrap();
+
+    // Get devices through the public method instead of accessing private field
+    match ProjectManager::get_midi_devices() {
+        Ok(devices) => Ok(CommandResponse::success(devices)),
+        Err(e) => Ok(CommandResponse::error(&format!(
+            "Failed to get MIDI devices: {}",
+            e
+        ))),
+    }
+}
+
+#[tauri::command]
+pub async fn connect_controller(
+    deviceId: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResponse<bool>, String> {
+    let mut project_manager = state.project_manager.lock().unwrap();
+
+    // Convert camelCase parameter to snake_case for internal use
+    match project_manager.connect_controller(&deviceId) {
+        Ok(_) => Ok(CommandResponse::success(true)),
+        Err(e) => Ok(CommandResponse::error(&format!(
+            "Failed to connect controller: {}",
+            e
+        ))),
+    }
+}
+
+#[tauri::command]
+pub async fn disconnect_controller(
+    state: State<'_, AppState>,
+) -> Result<CommandResponse<bool>, String> {
+    let mut project_manager = state.project_manager.lock().unwrap();
+
+    match project_manager.disconnect_controller() {
+        Ok(_) => Ok(CommandResponse::success(true)),
+        Err(e) => Ok(CommandResponse::error(&format!(
+            "Failed to disconnect controller: {}",
+            e
+        ))),
+    }
+}
+
+#[tauri::command]
+pub async fn send_cc(
+    channel: u8,
+    cc_number: u8,
+    value: u8,
+    state: State<'_, AppState>,
+) -> Result<CommandResponse<bool>, String> {
+    let project_manager = state.project_manager.lock().unwrap();
+
+    match project_manager.send_cc(channel, cc_number, value) {
+        Ok(_) => Ok(CommandResponse::success(true)),
+        Err(e) => Ok(CommandResponse::error(&format!("Failed to send CC: {}", e))),
+    }
+}
+
+#[command]
+pub fn debug_midi_parameters(
+    deviceId: String,
+    isController: bool,
+    otherParams: Option<String>,
+) -> Result<String, String> {
+    let mut response = format!(
+        "Received parameters:\n- deviceId: {}\n- isController: {}",
+        deviceId, isController
+    );
+
+    if let Some(params) = otherParams {
+        response.push_str(&format!("\n- otherParams: {}", params));
+    }
+
+    Ok(response)
 }

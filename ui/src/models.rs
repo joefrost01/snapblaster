@@ -22,7 +22,7 @@ pub struct Project {
     pub settings: ProjectSettings,
     pub cc_definitions: HashMap<String, CCDefinition>,
     pub scenes: HashMap<String, Scene>,
-    pub grid_assignments: HashMap<String, String>, // Position -> SceneId
+    pub grid_assignments: HashMap<u8, String>, // Position -> SceneId (u8 key matches backend)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

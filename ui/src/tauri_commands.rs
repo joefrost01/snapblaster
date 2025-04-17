@@ -2,9 +2,10 @@ use crate::models::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
+use crate::console_log;
 
 // Helper function to invoke Tauri commands
-async fn invoke<T, R>(command: &str, args: Option<T>) -> Result<R, String>
+pub(crate) async fn invoke<T, R>(command: &str, args: Option<T>) -> Result<R, String>
 where
     T: Serialize,
     R: for<'de> Deserialize<'de>,
@@ -21,8 +22,20 @@ where
 
     // Create the arguments
     let args_value = match args {
-        Some(data) => serde_wasm_bindgen::to_value(&data)
-            .map_err(|e| format!("Failed to serialize args: {:?}", e))?,
+        Some(data) => {
+            let serialized = serde_wasm_bindgen::to_value(&data)
+                .map_err(|e| format!("Failed to serialize args: {:?}", e))?;
+
+            // Debug the serialized value
+            let json_string = js_sys::JSON::stringify(&serialized)
+                .map_err(|_| "Failed to stringify arguments".to_string())?
+                .as_string()
+                .unwrap_or_default();
+
+            console_log!("Invoking {} with args: {}", command, json_string);
+
+            serialized
+        },
         None => JsValue::NULL,
     };
 
@@ -36,7 +49,7 @@ where
             &JsValue::NULL, // No options
         ),
     )
-    .map_err(|e| format!("Failed to call Tauri invoke: {:?}", e))?;
+        .map_err(|e| format!("Failed to call Tauri invoke: {:?}", e))?;
 
     // Wait for the promise to resolve
     let result = JsFuture::from(promise.dyn_into::<js_sys::Promise>().unwrap())
@@ -266,30 +279,6 @@ pub async fn list_midi_devices() -> Result<Vec<MidiDevice>, String> {
     }
 }
 
-pub async fn connect_controller_command(device_id: String) -> Result<bool, String> {
-    #[derive(Serialize)]
-    struct ConnectControllerArgs {
-        device_id: String,
-    }
-
-    let args = ConnectControllerArgs { device_id };
-    let response: CommandResponse<bool> = invoke("connect_controller", Some(args)).await?;
-
-    match response {
-        CommandResponse {
-            success: true,
-            data: Some(connected),
-            ..
-        } => Ok(connected),
-        CommandResponse {
-            success: false,
-            error: Some(err),
-            ..
-        } => Err(err),
-        _ => Err("Unknown error connecting controller".to_string()),
-    }
-}
-
 pub async fn disconnect_controller_command() -> Result<bool, String> {
     let response: CommandResponse<bool> = invoke("disconnect_controller", None::<()>).await?;
 
@@ -378,3 +367,138 @@ pub async fn save_generated_scene_command(
         _ => Err("Unknown error saving generated scene".to_string()),
     }
 }
+
+// Debug helper to test backend connectivity
+pub async fn check_backend_status() -> Result<String, String> {
+    match invoke::<(), String>("check_backend_status", None).await {
+        Ok(msg) => Ok(msg),
+        Err(e) => Err(format!("Backend connectivity error: {}", e)),
+    }
+}
+
+// Debug helper for connecting to a controller
+pub async fn debug_connect_controller(device_id: String) -> Result<String, String> {
+    // Use a HashMap to ensure parameter names are exactly as expected
+    use std::collections::HashMap;
+
+    let mut args = HashMap::new();
+    args.insert("deviceId".to_string(), device_id.clone());
+
+    console_log!("Debug connecting with HashMap: deviceId = {}", device_id);
+
+    match invoke::<HashMap<String, String>, String>("debug_connect_controller", Some(args)).await {
+        Ok(msg) => Ok(msg),
+        Err(e) => Err(format!("Debug connect error: {}", e)),
+    }
+}
+
+// More detailed MIDI parameter debugging
+pub async fn debug_midi_parameters(device_id: String, is_controller: bool) -> Result<String, String> {
+    #[derive(Serialize)]
+    struct DebugMidiArgs {
+        // All camelCase parameters to match the backend expectation
+        deviceId: String,
+        isController: bool,
+        otherParams: Option<String>,
+    }
+
+    let args = DebugMidiArgs {
+        deviceId: device_id,
+        isController: is_controller,
+        otherParams: Some("This is a test parameter".to_string()),
+    };
+    console_log!("Debug MIDI params: {:?}", serde_json::to_string(&args).unwrap_or_default());
+
+    match invoke::<DebugMidiArgs, String>("debug_midi_parameters", Some(args)).await {
+        Ok(msg) => Ok(msg),
+        Err(e) => Err(format!("Debug MIDI params error: {}", e)),
+    }
+}
+
+// Generic echo test for any parameters
+pub async fn echo_params<T: Serialize>(params: T) -> Result<String, String> {
+    match invoke::<T, String>("echo_params", Some(params)).await {
+        Ok(msg) => Ok(msg),
+        Err(e) => Err(format!("Echo params error: {}", e)),
+    }
+}
+
+
+pub async fn connect_controller_command(device_id: String) -> Result<bool, String> {
+    // Use a HashMap to ensure parameter names are exactly as expected
+    use std::collections::HashMap;
+
+    let mut args = HashMap::new();
+    args.insert("deviceId".to_string(), device_id.clone());
+
+    console_log!("Connecting with HashMap: deviceId = {}", device_id);
+
+    let response: CommandResponse<bool> = invoke("connect_controller", Some(args)).await?;
+
+    match response {
+        CommandResponse {
+            success: true,
+            data: Some(connected),
+            ..
+        } => Ok(connected),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
+        _ => Err("Unknown error connecting controller".to_string()),
+    }
+}
+
+// A variant of invoke that accepts a JsValue directly
+async fn invoke_raw<R>(command: &str, args: Option<js_sys::Object>) -> Result<R, String>
+where
+    R: for<'de> Deserialize<'de>,
+{
+    let window = web_sys::window().unwrap();
+
+    // Access the `__TAURI__` object
+    let tauri = js_sys::Reflect::get(&window, &JsValue::from_str("__TAURI__"))
+        .map_err(|_| "Tauri API not found".to_string())?;
+
+    // Access the `invoke` function
+    let invoke_fn = js_sys::Reflect::get(&tauri, &JsValue::from_str("invoke"))
+        .map_err(|_| "Tauri invoke function not found".to_string())?;
+
+    // Create the arguments
+    let args_value = match args {
+        Some(obj) => {
+            // Debug the serialized value
+            let json_string = js_sys::JSON::stringify(&obj)
+                .map_err(|_| "Failed to stringify arguments".to_string())?
+                .as_string()
+                .unwrap_or_default();
+
+            console_log!("Invoking {} with raw args: {}", command, json_string);
+            JsValue::from(obj)
+        },
+        None => JsValue::NULL,
+    };
+
+    // Call the invoke function
+    let promise = js_sys::Reflect::apply(
+        &invoke_fn.dyn_into::<js_sys::Function>().unwrap(),
+        &tauri,
+        &js_sys::Array::of3(
+            &JsValue::from_str(command),
+            &args_value,
+            &JsValue::NULL, // No options
+        ),
+    )
+        .map_err(|e| format!("Failed to call Tauri invoke: {:?}", e))?;
+
+    // Wait for the promise to resolve
+    let result = JsFuture::from(promise.dyn_into::<js_sys::Promise>().unwrap())
+        .await
+        .map_err(|e| format!("Tauri command failed: {:?}", e))?;
+
+    // Deserialize the result
+    serde_wasm_bindgen::from_value(result)
+        .map_err(|e| format!("Failed to deserialize result: {:?}", e))
+}
+

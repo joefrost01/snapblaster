@@ -17,13 +17,11 @@ fn main() {
         .setup(|app| {
             // Initialize the application
             app::init(&app.handle()).map_err(|e| {
-                // Convert the string error to a tauri::Error using specific methods
-                // This creates an io::Error with the error message and then converts it to tauri::Error
-                let io_err = std::io::Error::new(std::io::ErrorKind::Other, e.to_string());
-                Error::from(io_err)
+                // Convert the string error to a tauri::Error
+                Error::from(std::io::Error::new(std::io::ErrorKind::Other, e))
             })?;
 
-            // Start background device scanning
+            // Start background scan for MIDI devices
             app::scan_midi_devices_background(&app.handle());
 
             Ok(())
@@ -52,7 +50,10 @@ fn main() {
             // AI generation commands
             commands::generate_scene,
             commands::save_generated_scene,
+            // Diagnostic commands
+            commands::check_backend_status,
+            commands::debug_connect_controller,
         ])
-        .run(tauri::generate_context!("tauri.conf.json"))
+        .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

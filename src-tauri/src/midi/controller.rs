@@ -335,3 +335,226 @@ impl ControllerFactory {
         Err(format!("Unsupported controller type: {}", device.name))
     }
 }
+
+
+/// Implementation for Novation Launchpad X
+pub struct LaunchpadX {
+    device: MidiDevice,
+    input_connection: Option<MidiInputConnection<()>>,
+    output_connection: Option<MidiOutputConnection>,
+    event_callback: Option<Arc<dyn Fn(ControllerEvent) + Send + Sync>>,
+}
+
+impl LaunchpadX {
+    pub fn new(device: MidiDevice) -> Self {
+        LaunchpadX {
+            device,
+            input_connection: None,
+            output_connection: None,
+            event_callback: None,
+        }
+    }
+
+    /// Convert RGB color to Launchpad X's color format
+    fn rgb_to_launchpad_color(&self, color: Color) -> u8 {
+        // Simple conversion - more accurate would use a lookup table
+        let r = color.r / 85; // 0-3
+        let g = color.g / 85; // 0-3
+        let b = color.b / 85; // 0-3
+
+        // Launchpad X uses a 4x4x4 color space, encoded as:
+        // 16 * r + 4 * g + b
+        16 * r + 4 * g + b
+    }
+}
+
+impl Clone for LaunchpadX {
+    fn clone(&self) -> Self {
+        LaunchpadX {
+            device: self.device.clone(),
+            input_connection: None,  // Connections can't be cloned
+            output_connection: None, // Connections can't be cloned
+            event_callback: self.event_callback.clone(),
+        }
+    }
+}
+
+impl GridController for LaunchpadX {
+    fn clone_box(&self) -> Box<dyn GridController> {
+        Box::new(self.clone())
+    }
+
+    fn connect(&mut self) -> Result<(), String> {
+        // Connect to MIDI input
+        let midi_in = MidiInput::new("snap-blaster").map_err(|e| e.to_string())?;
+
+        // Find the port
+        let in_ports = midi_in.ports();
+        let in_port = in_ports
+            .iter()
+            .find(|p| {
+                midi_in
+                    .port_name(p)
+                    .map(|name| name == self.device.name)
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| format!("Could not find MIDI input device: {}", self.device.name))?;
+
+        // Create a callback to handle incoming MIDI messages
+        let callback = {
+            let event_callback = self.event_callback.clone();
+
+            move |_timestamp, message: &[u8], _: &mut ()| {
+                if message.len() < 3 {
+                    return;
+                }
+
+                // Parse MIDI message based on Launchpad X protocol
+                let status = message[0];
+                let note = message[1];
+                let velocity = message[2];
+
+                let event = match (status, velocity) {
+                    (0x90, 0) => Some(ControllerEvent::PadReleased(note)),
+                    (0x90, v) => Some(ControllerEvent::PadPressed(note, v)),
+                    (0xB0, 0) => Some(ControllerEvent::ButtonReleased(note)),
+                    (0xB0, v) => Some(ControllerEvent::ButtonPressed(note)),
+                    _ => None,
+                };
+
+                if let Some(event) = event {
+                    if let Some(ref callback) = event_callback {
+                        callback(event);
+                    }
+                }
+            }
+        };
+
+        let input_conn = midi_in
+            .connect(in_port, "launchpad-input", callback, ())
+            .map_err(|e| e.to_string())?;
+        self.input_connection = Some(input_conn);
+
+        // Connect to MIDI output
+        let midi_out = MidiOutput::new("snap-blaster").map_err(|e| e.to_string())?;
+
+        // Find the port
+        let out_ports = midi_out.ports();
+        let out_port = out_ports
+            .iter()
+            .find(|p| {
+                midi_out
+                    .port_name(p)
+                    .map(|name| name == self.device.name)
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| format!("Could not find MIDI output device: {}", self.device.name))?;
+
+        let output_conn = midi_out
+            .connect(out_port, "launchpad-output")
+            .map_err(|e| e.to_string())?;
+        self.output_connection = Some(output_conn);
+
+        // Set to programmer mode (for RGB control) - Launchpad X specific SysEx command
+        if let Some(ref mut conn) = self.output_connection {
+            conn.send(&[0xF0, 0x00, 0x20, 0x29, 0x02, 0x0D, 0x0E, 0x01, 0xF7])
+                .map_err(|e| e.to_string())?;
+
+            // Wait a moment for the device to process
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        Ok(())
+    }
+
+    fn disconnect(&mut self) -> Result<(), String> {
+        // Reset the Launchpad X
+        if let Some(ref mut conn) = self.output_connection {
+            conn.send(&[0xF0, 0x00, 0x20, 0x29, 0x02, 0x0D, 0x0E, 0x00, 0xF7])
+                .map_err(|e| e.to_string())?;
+        }
+
+        self.input_connection = None;
+        self.output_connection = None;
+
+        Ok(())
+    }
+
+    fn set_pad_color(&mut self, grid_id: u8, color: Color) -> Result<(), String> {
+        let launchpad_id = self.map_grid_id(grid_id);
+        let color_value = self.rgb_to_launchpad_color(color);
+
+        if let Some(ref mut conn) = self.output_connection {
+            // Launchpad X uses Note On messages for setting pad colors
+            conn.send(&[0x90, launchpad_id, color_value])
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    }
+
+    fn set_button_color(&mut self, button_id: u8, color: Color) -> Result<(), String> {
+        let color_value = self.rgb_to_launchpad_color(color);
+
+        if let Some(ref mut conn) = self.output_connection {
+            // Launchpad X uses CC messages for setting button colors
+            conn.send(&[0xB0, button_id, color_value])
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    }
+
+    fn clear(&mut self) -> Result<(), String> {
+        // Set all pads to black
+        for i in 0..64 {
+            self.set_pad_color(i, Color::BLACK)?;
+        }
+
+        // Set all buttons to black
+        for i in 104..112 {
+            self.set_button_color(i, Color::BLACK)?;
+        }
+
+        Ok(())
+    }
+
+    fn map_grid_id(&self, app_grid_id: u8) -> u8 {
+        if app_grid_id >= 64 {
+            return 0; // Invalid ID
+        }
+
+        // Map from linear 0-63 to Launchpad X's 9x9 grid
+        // Launchpad X has a similar layout to the MK2:
+        // 11 12 13 14 15 16 17 18 19
+        // 21 22 23 24 25 26 27 28 29
+        // ...
+        // 81 82 83 84 85 86 87 88 89
+
+        let row = app_grid_id / 8;
+        let col = app_grid_id % 8;
+
+        // Convert to Launchpad-specific format
+        // Adding 1 to both row and col because Launchpad starts at 1
+        ((row + 1) * 10) + (col + 1)
+    }
+
+    fn map_to_app_grid_id(&self, controller_id: u8) -> Option<u8> {
+        // Extract row and column from Launchpad ID
+        let row = controller_id / 10;
+        let col = controller_id % 10;
+
+        // Validate the ID is within the grid
+        if row < 1 || row > 8 || col < 1 || col > 8 {
+            return None;
+        }
+
+        // Convert to app grid ID
+        // Subtracting 1 from both row and col because app grid starts at 0
+        Some(((row - 1) * 8) + (col - 1))
+    }
+
+    fn set_event_callback(&mut self, callback: Arc<dyn Fn(ControllerEvent) + Send + Sync>) {
+        self.event_callback = Some(callback);
+    }
+}

@@ -43,7 +43,10 @@ impl DeviceRegistry {
                         || port_name.to_lowercase().contains("apc")
                         || port_name.to_lowercase().contains("push")
                         || port_name.to_lowercase().contains("fire")
-                        || port_name.to_lowercase().contains("grid");
+                        || port_name.to_lowercase().contains("grid")
+                        || port_name.to_lowercase().contains("lpx")  // Added specific check for Launchpad X
+                        || port_name.to_lowercase().contains("lp x") // Added another variation
+                        || port_name.to_lowercase().contains("midi in"); // Include MIDI In ports
 
                     let device = MidiDevice {
                         id: id.clone(),
