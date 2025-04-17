@@ -1,60 +1,67 @@
-use leptos::*;
-use leptos::prelude::{Callback, ClassAttribute, OnAttribute};
 use crate::models::Project;
+use leptos::prelude::*;
 
 #[component]
 pub fn SettingsPanel(
-    #[prop(optional)]
     project: Option<Project>,
-    on_open_settings: Callback<()>,
+    on_close: Callback<()>,
+    _on_save: Callback<Project>, // reserved
 ) -> impl IntoView {
+    let project_signal = create_rw_signal(project);
+
+    /* inner view – called only when project is Some */
+    let quick_settings = move || {
+        let p = project_signal.get().unwrap();
+
+        view! {
+            <div class="quick-settings">
+                <div class="settings-item">
+                    <span class="settings-label">"Tempo:"</span>
+                    <span class="settings-value">
+                        {format!("{} BPM", p.settings.default_tempo)}
+                    </span>
+                </div>
+                <div class="settings-item">
+                    <span class="settings-label">"Link:"</span>
+                    <span class="settings-value">
+                        {if p.settings.use_link { "Enabled" } else { "Disabled" }}
+                    </span>
+                </div>
+                <div class="settings-item">
+                    <span class="settings-label">"Quantization:"</span>
+                    <span class="settings-value">
+                        {match p.settings.default_quantization {
+                            Some(1) => "1 Beat".into(),
+                            Some(2) => "2 Beats".into(),
+                            Some(4) => "1 Bar".into(),
+                            Some(8) => "2 Bars".into(),
+                            Some(n) => format!("{n} Beats"),
+                            None    => "Off".into(),
+                        }}
+                    </span>
+                </div>
+            </div>
+        }
+    };
+
+    /* panel */
     view! {
         <div class="settings-panel">
             <div class="panel-header">
                 <h2>"Quick Settings"</h2>
-                <button
-                    class="button-small"
-                    on:click=move |_| on_open_settings.call(())
-                >
+                <button class="button-small"
+                        on:click=move |_| on_close.clone().run(()) >
                     "Full Settings"
                 </button>
             </div>
-            
+
             <div class="panel-content">
-                {move || match project.clone() {
-                    Some(p) => view! {
-                        <div class="quick-settings">
-                            <div class="settings-item">
-                                <span class="settings-label">"Tempo:"</span>
-                                <span class="settings-value">{p.settings.default_tempo.to_string()}{" BPM"}</span>
-                            </div>
-                            
-                            <div class="settings-item">
-                                <span class="settings-label">"Link:"</span>
-                                <span class="settings-value">{if p.settings.use_link { "Enabled" } else { "Disabled" }}</span>
-                            </div>
-                            
-                            <div class="settings-item">
-                                <span class="settings-label">"Quantization:"</span>
-                                <span class="settings-value">
-                                    {match p.settings.default_quantization {
-                                        Some(1) => "1 Beat",
-                                        Some(2) => "2 Beats",
-                                        Some(4) => "1 Bar",
-                                        Some(8) => "2 Bars",
-                                        Some(n) => format!("{} Beats", n),
-                                        None => "Off"
-                                    }}
-                                </span>
-                            </div>
-                        </div>
-                    },
-                    None => view! {
-                        <div class="no-project-message">
-                            "Load a project to see settings"
-                        </div>
-                    }
-                }}
+                <Show when=move || project_signal.get().is_some()
+                      fallback=|| view!{ <div class="no-project-message">
+                          "Load a project to see settings"
+                      </div> }>
+                    {quick_settings}
+                </Show>
             </div>
         </div>
     }

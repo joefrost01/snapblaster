@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 use crate::models::cc::CCValue;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Definition of how a scene is triggered
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -153,7 +153,6 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::cc::TransitionCurve;
 
     #[test]
     fn test_scene_creation() {

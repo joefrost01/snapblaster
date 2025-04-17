@@ -1,7 +1,8 @@
-use leptos::*;
-use leptos::prelude::{create_memo, create_signal, Callback, ClassAttribute, Get, GlobalAttributes, OnAttribute, ReadSignal, Set, StyleAttribute};
+use crate::models::{CCDefinition, CCValue, TransitionCurve};
+use leptos::prelude::*;
+use std::rc::Rc;
 use wasm_bindgen::JsCast;
-use crate::models::{CCValue, CCDefinition, TransitionCurve};
+use web_sys::{HtmlInputElement, HtmlSelectElement};
 
 #[component]
 pub fn CCEditor(
@@ -10,220 +11,200 @@ pub fn CCEditor(
     is_editing: ReadSignal<bool>,
     on_change: Callback<CCValue>,
 ) -> impl IntoView {
-    // Local state for editing
-    let (current_value, set_current_value) = create_signal(value.value);
-    let (transition_enabled, set_transition_enabled) = create_signal(value.transition);
-    let (transition_beats, set_transition_beats) = create_signal(value.transition_beats.unwrap_or(1.0));
-    let (curve_type, set_curve_type) = create_signal(value.curve);
+    /* ---------- mutable signals for live editing ---------- */
+    let (cur, set_cur) = create_signal(value.value);
+    let (tx, set_tx) = create_signal(value.transition);
+    let (beats, set_beats) = create_signal(value.transition_beats.unwrap_or(1.0));
+    let (curve, set_curve) = create_signal(value.curve);
 
-    // Get display name from either the CC value or the definition
-    let display_name = move || {
-        value.name.clone().unwrap_or_else(|| {
-            definition.as_ref().map(|def| def.name.clone())
-                .unwrap_or_else(|| format!("CC {}", value.cc_number))
+    /* ---------- derived info ---------- */
+    let def_name = definition.as_ref().map(|d| d.name.clone());
+    let def_desc = definition.as_ref().and_then(|d| d.description.clone());
+
+    let name_str = value.name.clone();
+    let desc_str = value.description.clone();
+
+    let name = move || {
+        name_str
+            .clone()
+            .or_else(|| def_name.clone())
+            .unwrap_or_else(|| format!("CC {}", value.cc_number))
+    };
+    let desc = move || {
+        desc_str
+            .clone()
+            .or_else(|| def_desc.clone())
+            .unwrap_or_default()
+    };
+
+    let min = definition.as_ref().map(|d| d.min_value).unwrap_or(0);
+    let max = definition.as_ref().map(|d| d.max_value).unwrap_or(127);
+    let pct = create_memo(move |_| ((cur.get() - min) as f32 / (max - min) as f32) * 100.0);
+
+    /* ---------- apply helper ---------- */
+    let apply: Rc<dyn Fn()> = {
+        let on_change = on_change.clone();
+        let cur = cur.clone();
+        let tx = tx.clone();
+        let beats = beats.clone();
+        let curve = curve.clone();
+        let base = value.clone();
+        Rc::new(move || {
+            let mut nv = base.clone();
+            nv.value = cur.get();
+            nv.transition = tx.get();
+            nv.transition_beats = if tx.get() { Some(beats.get()) } else { None };
+            nv.curve = curve.get();
+            on_change.run(nv);
         })
     };
 
-    // Get value description
-    let description = move || {
-        value.description.clone().unwrap_or_else(|| {
-            definition.as_ref().and_then(|def| def.description.clone())
-                .unwrap_or_default()
-        })
+    /* ---------- handlers ---------- */
+    let handle_val = {
+        let apply = apply.clone();
+        move |e: leptos::ev::Event| {
+            if let Ok(v) = event_target::<HtmlInputElement>(&e).value().parse::<u8>() {
+                set_cur.set(v);
+                apply();
+            }
+        }
     };
 
-    // Get min and max values from definition or defaults
-    let min_value = definition.as_ref().map(|def| def.min_value).unwrap_or(0);
-    let max_value = definition.as_ref().map(|def| def.max_value).unwrap_or(127);
-
-    // Value as percentage (for progress bar visualization)
-    let value_percent = create_memo(move |_| {
-        let range = max_value - min_value;
-        if range == 0 {
-            return 0.0;
+    let handle_tx = {
+        let apply = apply.clone();
+        move |e: leptos::ev::Event| {
+            set_tx.set(event_target::<HtmlInputElement>(&e).checked());
+            apply();
         }
-
-        let relative_value = current_value.get() - min_value;
-        (relative_value as f32 / range as f32) * 100.0
-    });
-
-    // Apply changes to the CC value
-    let apply_changes = move || {
-        let mut new_value = value.clone();
-        new_value.value = current_value.get();
-        new_value.transition = transition_enabled.get();
-
-        if transition_enabled.get() {
-            new_value.transition_beats = Some(transition_beats.get());
-            new_value.curve = curve_type.get();
-        } else {
-            new_value.transition_beats = None;
-        }
-
-        on_change.call(new_value);
     };
 
+    let handle_beats = {
+        let apply = apply.clone();
+        move |e: leptos::ev::Event| {
+            if let Ok(b) = event_target::<HtmlSelectElement>(&e).value().parse::<f32>() {
+                set_beats.set(b);
+                apply();
+            }
+        }
+    };
+
+    let handle_curve = {
+        let apply = apply.clone();
+        move |e: leptos::ev::Event| {
+            let cv = match event_target::<HtmlSelectElement>(&e).value().as_str() {
+                "linear" => TransitionCurve::Linear,
+                "exponential" => TransitionCurve::Exponential,
+                "logarithmic" => TransitionCurve::Logarithmic,
+                "scurve" => TransitionCurve::SCurve,
+                _ => TransitionCurve::Linear,
+            };
+            set_curve.set(cv);
+            apply();
+        }
+    };
+
+    /* ---------- view ---------- */
     view! {
         <div class="cc-editor">
             <div class="cc-header">
-                <div class="cc-name">{display_name}</div>
+                <div class="cc-name">{name()}</div>
                 <div class="cc-channel-info">
-                    {format!("Ch: {}, CC: {}", value.channel + 1, value.cc_number)}
+                    {format!("Ch: {}, CC: {}", value.channel + 1, value.cc_number)}
                 </div>
             </div>
-            
+
             <div class="cc-value-display">
                 <div class="value-bar-container">
-                    <div 
-                        class="value-bar" 
-                        style=move || format!("width: {}%;", value_percent.get())
-                    ></div>
+                    <div class="value-bar"
+                         style=move || format!("width:{:.1}%;", pct.get()) />
                 </div>
-                <div class="value-text">{move || current_value.get()}</div>
+                <div class="value-text">{move || cur.get().to_string()}</div>
             </div>
-            
-            {move || if is_editing.get() {
-                view! {
-                    <div class="cc-controls">
-                        <input 
-                            type="range"
-                            min=min_value
-                            max=max_value
-                            value=current_value
-                            on:input=move |e| {
-                                let target = event_target::<web_sys::HtmlInputElement>(&e);
-                                if let Ok(value) = target.value().parse::<u8>() {
-                                    set_current_value.set(value);
-                                    apply_changes();
-                                }
-                            }
-                        />
-                        
-                        <div class="transition-controls">
-                            <label>
-                                <input 
-                                    type="checkbox"
-                                    checked=transition_enabled
-                                    on:change=move |e| {
-                                        let target = event_target::<web_sys::HtmlInputElement>(&e);
-                                        set_transition_enabled.set(target.checked());
-                                        apply_changes();
-                                    }
-                                />
-                                "Transition"
-                            </label>
-                            
-                            {move || if transition_enabled.get() {
-                                view! {
-                                    <div class="transition-options">
-                                        <div class="transition-duration">
-                                            <label for="beats">"Beats:"</label>
-                                            <select 
-                                                id="beats"
-                                                on:change=move |e| {
-                                                    let target = event_target::<web_sys::HtmlSelectElement>(&e);
-                                                    if let Ok(beats) = target.value().parse::<f32>() {
-                                                        set_transition_beats.set(beats);
-                                                        apply_changes();
-                                                    }
-                                                }
-                                            >
-                                                <option value="0.25" selected=move || (transition_beats.get() - 0.25).abs() < 0.01>
-                                                    "1/4"
-                                                </option>
-                                                <option value="0.5" selected=move || (transition_beats.get() - 0.5).abs() < 0.01>
-                                                    "1/2"
-                                                </option>
-                                                <option value="1.0" selected=move || (transition_beats.get() - 1.0).abs() < 0.01>
-                                                    "1"
-                                                </option>
-                                                <option value="2.0" selected=move || (transition_beats.get() - 2.0).abs() < 0.01>
-                                                    "2"
-                                                </option>
-                                                <option value="4.0" selected=move || (transition_beats.get() - 4.0).abs() < 0.01>
-                                                    "4"
-                                                </option>
-                                                <option value="8.0" selected=move || (transition_beats.get() - 8.0).abs() < 0.01>
-                                                    "8"
-                                                </option>
-                                            </select>
-                                        </div>
-                                        
-                                        <div class="transition-curve">
-                                            <label for="curve">"Curve:"</label>
-                                            <select 
-                                                id="curve"
-                                                on:change=move |e| {
-                                                    let target = event_target::<web_sys::HtmlSelectElement>(&e);
-                                                    let curve = match target.value().as_str() {
-                                                        "linear" => TransitionCurve::Linear,
-                                                        "exponential" => TransitionCurve::Exponential,
-                                                        "logarithmic" => TransitionCurve::Logarithmic,
-                                                        "scurve" => TransitionCurve::SCurve,
-                                                        _ => TransitionCurve::Linear,
-                                                    };
-                                                    set_curve_type.set(curve);
-                                                    apply_changes();
-                                                }
-                                            >
-                                                <option value="linear" selected=move || matches!(curve_type.get(), TransitionCurve::Linear)>
-                                                    "Linear"
-                                                </option>
-                                                <option value="exponential" selected=move || matches!(curve_type.get(), TransitionCurve::Exponential)>
-                                                    "Exponential"
-                                                </option>
-                                                <option value="logarithmic" selected=move || matches!(curve_type.get(), TransitionCurve::Logarithmic)>
-                                                    "Logarithmic"
-                                                </option>
-                                                <option value="scurve" selected=move || matches!(curve_type.get(), TransitionCurve::SCurve)>
-                                                    "S-Curve"
-                                                </option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                }
-                            } else {
-                                view! { <div></div> }
-                            }}
-                        </div>
+
+            /* ---------- editing controls ---------- */
+            <div class="cc-controls"
+                 style=move || if is_editing.get() {""} else {"display:none;"}>
+                <input type="range"
+                       min=min max=max
+                       prop:value=cur
+                       on:input=handle_val />
+
+                <label>
+                    <input type="checkbox"
+                           checked=tx
+                           on:change=handle_tx />
+                    "Transition"
+                </label>
+
+                <div class="transition-options"
+                     style=move || if tx.get() {""} else {"display:none;"}>
+                    <div class="transition-duration">
+                        <label for="beats">"Beats:"</label>
+                        <select id="beats"
+                                prop:value=move || beats.get().to_string()
+                                on:change=handle_beats>
+                            {[
+                                0.25, 0.5, 1.0, 2.0, 4.0, 8.0
+                            ].iter().map(|b| view!{
+                                <option value={b.to_string()}
+                                        selected=move || (beats.get() - b).abs() < f32::EPSILON>
+                                    {format!("{b}")}
+                                </option>
+                            }).collect::<Vec<_>>()}
+                        </select>
                     </div>
-                }
-            } else {
-                view! {
-                    <div class="cc-info">
-                        {move || if value.transition {
-                            let curve_name = match value.curve {
-                                TransitionCurve::Linear => "Linear",
-                                TransitionCurve::Exponential => "Exponential",
-                                TransitionCurve::Logarithmic => "Logarithmic",
-                                TransitionCurve::SCurve => "S-Curve",
-                            };
-                            
-                            let beats = value.transition_beats.unwrap_or(1.0);
-                            
-                            view! {
-                                <div class="transition-info">
-                                    {"Transition: "}
-                                    {format!("{} beats ({})", beats, curve_name)}
-                                </div>
-                            }
-                        } else {
-                            view! {}
-                        }}
-                        
-                        {move || if !description().is_empty() {
-                            view! { <div class="cc-description">{description()}</div> }
-                        } else {
-                            view! {}
-                        }}
+
+                    <div class="transition-curve">
+                        <label for="curve">"Curve:"</label>
+                        <select id="curve"
+                                prop:value=move || match curve.get() {
+                                    TransitionCurve::Linear       => "linear",
+                                    TransitionCurve::Exponential  => "exponential",
+                                    TransitionCurve::Logarithmic  => "logarithmic",
+                                    TransitionCurve::SCurve       => "scurve",
+                                }
+                                on:change=handle_curve>
+                            {["linear","exponential","logarithmic","scurve"].iter().map(|v| view!{
+                                <option value=*v
+                                        selected=move || match (curve.get(), *v) {
+                                            (TransitionCurve::Linear,      "linear")       => true,
+                                            (TransitionCurve::Exponential, "exponential")  => true,
+                                            (TransitionCurve::Logarithmic, "logarithmic")  => true,
+                                            (TransitionCurve::SCurve,      "scurve")       => true,
+                                            _ => false,
+                                        }>
+                                    {v.chars().next().unwrap().to_uppercase().collect::<String>() + &v[1..]}
+                                </option>
+                            }).collect::<Vec<_>>()}
+                        </select>
                     </div>
-                }
-            }}
+                </div>
+            </div>
+
+            /* ---------- read‑only view ---------- */
+            <div class="cc-info"
+                 style=move || if !is_editing.get() {""} else {"display:none;"}>
+                <div class="transition-info"
+                     style=move || if value.transition {""} else {"display:none;"}>
+                    {let cname = match value.curve {
+                        TransitionCurve::Linear       => "Linear",
+                        TransitionCurve::Exponential  => "Exponential",
+                        TransitionCurve::Logarithmic  => "Logarithmic",
+                        TransitionCurve::SCurve       => "S‑Curve",
+                    };
+                    let b = value.transition_beats.unwrap_or(1.0);
+                    format!("Transition: {b} beats ({cname})")}
+                </div>
+                <div class="cc-description"
+                     style=move || if desc().is_empty() {"display:none;"} else {""}>
+                    {desc()}
+                </div>
+            </div>
         </div>
     }
 }
 
-// Helper function to get the event target
-fn event_target<T: wasm_bindgen::JsCast>(event: &leptos::ev::Event) -> T {
-    event.target().unwrap().unchecked_into::<T>()
+/* tiny helper */
+fn event_target<T: JsCast>(ev: &leptos::ev::Event) -> T {
+    ev.target().unwrap().unchecked_into()
 }

@@ -1,11 +1,21 @@
-use leptos::*;
-use leptos::prelude::{create_effect, create_signal, Callback, ClassAttribute, Get, GlobalAttributes, OnAttribute, Set};
+use leptos::prelude::*;
+use leptos::task::spawn_local;
 use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::spawn_local;
-use web_sys::HtmlInputElement;
+use web_sys::MouseEvent;
 
 use crate::models::ProjectMeta;
 use crate::tauri_commands::list_projects;
+
+/* tiny helpers */
+fn val(e: &leptos::ev::Event) -> String {
+    event_target::<web_sys::HtmlInputElement>(e).value()
+}
+fn event_target<T: JsCast>(e: &leptos::ev::Event) -> T {
+    e.target().unwrap().unchecked_into()
+}
+fn format_date(raw: &str) -> String {
+    raw.split('T').next().unwrap_or(raw).into()
+}
 
 #[component]
 pub fn ProjectDialog(
@@ -13,238 +23,178 @@ pub fn ProjectDialog(
     on_create: Callback<(String, Option<String>)>,
     on_load: Callback<String>,
 ) -> impl IntoView {
-    // Current tab
-    let (active_tab, set_active_tab) = create_signal("existing");
-
-    // Form fields for new project
+    /* -------- state -------- */
+    let (active_tab, set_tab) = create_signal("existing".to_string());
     let (new_name, set_new_name) = create_signal(String::new());
-    let (new_author, set_new_author) = create_signal(String::new());
+    let (new_author, set_author) = create_signal(String::new());
 
-    // Loading state
-    let (is_loading, set_is_loading) = create_signal(false);
+    let (is_loading, set_loading) = create_signal(false);
     let (projects, set_projects) = create_signal(Vec::<ProjectMeta>::new());
-    let (selected_project, set_selected_project) = create_signal(None::<String>);
+    let (selected, set_selected) = create_signal(None::<String>);
 
-    // Load existing projects
+    /* ---- load once on mount ---- */
     create_effect(move |_| {
-        set_is_loading.set(true);
-
+        set_loading.set(true);
         spawn_local(async move {
             match list_projects().await {
-                Ok(project_list) => set_projects.set(project_list),
+                Ok(p) => set_projects.set(p),
                 Err(_) => set_projects.set(Vec::new()),
             }
-
-            set_is_loading.set(false);
+            set_loading.set(false);
         });
     });
 
-    // Handle create new project
+    /* -------- callbacks -------- */
     let handle_create = move |_| {
-        let name = new_name.get();
-        let author = new_author.get();
-
-        if name.trim().is_empty() {
+        if new_name.get().trim().is_empty() {
             return;
         }
-
-        let author_option = if author.trim().is_empty() {
+        let author = if new_author.get().trim().is_empty() {
             None
         } else {
-            Some(author)
+            Some(new_author.get())
         };
-
-        on_create.call((name, author_option));
-        on_close.call(());
+        on_create.run((new_name.get(), author));
+        on_close.run(());
     };
 
-    // Handle load existing project
     let handle_load = move |_| {
-        if let Some(id) = selected_project.get() {
-            on_load.call(id);
-            on_close.call(());
+        if let Some(id) = selected.get() {
+            on_load.run(id);
+            on_close.run(());
         }
     };
 
+    /* ------ helper sub‑views ------ */
+    let existing_view = move || {
+        view! {
+            <Show
+                when=move || !is_loading.get()
+                fallback=move || view!{ <div class="loading">"Loading projects…"</div> }
+            >
+                <Show
+                    when=move || !projects.get().is_empty()
+                    fallback=move || view!{ <div class="no-projects">"No projects found"</div> }
+                >
+                    {move || view!{
+                        <div class="project-list">
+                            {projects.get().iter().map(|proj| {
+                                // Clone outside the closures to avoid move issues
+                                let id_for_selection = proj.id.clone();
+                                let id_for_click = proj.id.clone();
+                                let is_sel = move || Some(id_for_selection.clone()) == selected.get();
+
+                                view!{
+                                    <div class=move || if is_sel() { "project-item selected" } else { "project-item" }
+                                         on:click=move |_| set_selected.set(Some(id_for_click.clone()))>
+                                        <div class="project-name">{proj.name.clone()}</div>
+                                        <div class="project-details">
+                                            {proj.description.clone().unwrap_or_default()}
+                                            {proj.author.clone().map(|a| view!{
+                                                <span class="project-author">{" by "}{a}</span>
+                                            }).into_view()}
+                                        </div>
+                                        <div class="project-date">
+                                            {"Last updated: "}{format_date(&proj.updated_at)}
+                                        </div>
+                                    </div>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    }}
+                </Show>
+            </Show>
+        }
+    };
+
+    let new_view = move || {
+        view! {
+            <div class="new-project tab-content">
+                <div class="form-group">
+                    <label for="project-name">"Project Name"</label>
+                    <input id="project-name" type="text"
+                           placeholder="Enter name"
+                           prop:value=move || new_name.get()
+                           on:input=move |e| set_new_name.set(val(&e))/>
+                </div>
+                <div class="form-group">
+                    <label for="project-author">"Author (optional)"</label>
+                    <input id="project-author" type="text"
+                           prop:value=move || new_author.get()
+                           on:input=move |e| set_author.set(val(&e))/>
+                </div>
+            </div>
+        }
+    };
+
+    /* --------------- top‑level view --------------- */
     view! {
         <div class="dialog-overlay">
             <div class="dialog project-dialog">
+                /* ----- header ----- */
                 <div class="dialog-header">
                     <h2>"Projects"</h2>
-                    <button 
-                        class="close-button"
-                        on:click=move |_| on_close.call(())
-                    >
+                    <button class="close-button"
+                            on:click=move |_| on_close.clone().run(())>
                         "×"
                     </button>
                 </div>
-                
+
+                /* ----- tab bar ----- */
                 <div class="dialog-tabs">
-                    <button 
+                    <button
                         class=move || if active_tab.get() == "existing" { "tab active" } else { "tab" }
-                        on:click=move |_| set_active_tab.set("existing")
-                    >
-                        "Existing Projects"
+                        on:click=move |_| set_tab.set("existing".into())>
+                        "Existing"
                     </button>
-                    <button 
+                    <button
                         class=move || if active_tab.get() == "new" { "tab active" } else { "tab" }
-                        on:click=move |_| set_active_tab.set("new")
-                    >
-                        "New Project"
+                        on:click=move |_| set_tab.set("new".into())>
+                        "New"
                     </button>
                 </div>
-                
+
+                /* ----- body ----- */
                 <div class="dialog-content">
-                    {move || match active_tab.get().as_str() {
-                        "existing" => view! {
-                            <div class="tab-content existing-projects">
-                                {move || if is_loading.get() {
-                                    view! { <div class="loading">"Loading projects..."</div> }
-                                } else if projects.get().is_empty() {
-                                    view! { <div class="no-projects">"No projects found"</div> }
-                                } else {
-                                    view! {
-                                        <div class="project-list">
-                                            {projects.get().into_iter().map(|project| {
-                                                let id = project.id.clone();
-                                                view! {
-                                                    <div 
-                                                        class=move || {
-                                                            if Some(id.clone()) == selected_project.get() {
-                                                                "project-item"
-                                                            }
-                                                        }
-                                                        on:click=move |_| set_selected_project.set(Some(id.clone()))
-                                                    >
-                                                        <div class="project-name">{project.name}</div>
-                                                        <div class="project-details">
-                                                            {project.description.unwrap_or_default()}
-                                                            {move || project.author.map(|author| view! {
-                                                                <span class="project-author">{" by "}{author}</span>
-                                                            })}
-                                                        </div>
-                                                        <div class="project-date">
-                                                            {"Last updated: "}
-                                                            {format_date(&project.updated_at)}
-                                                        </div>
-                                                    </div>
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    }
-                                }}
-                            </div>
-                        },
-                        "new" => view! {
-                            <div class="tab-content new-project">
-                                <div class="form-group">
-                                    <label for="project-name">"Project Name"</label>
-                                    <input 
-                                        type="text"
-                                        id="project-name"
-                                        placeholder="Enter project name"
-                                        value=new_name
-                                        on:input=move |e| set_new_name.set(event_target_value(&e))
-                                    />
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label for="project-author">"Author (optional)"</label>
-                                    <input 
-                                        type="text"
-                                        id="project-author"
-                                        placeholder="Enter author name"
-                                        value=new_author
-                                        on:input=move |e| set_new_author.set(event_target_value(&e))
-                                    />
-                                </div>
-                                
-                                <div class="template-options">
-                                    <h3>"Template Options"</h3>
-                                    <div class="templates">
-                                        <div class="template-item selected">
-                                            <div class="template-name">"Default Project"</div>
-                                            <div class="template-description">
-                                                "Basic project with common MIDI CC mappings"
-                                            </div>
-                                        </div>
-                                        <div class="template-item disabled">
-                                            <div class="template-name">"Techno Template"</div>
-                                            <div class="template-description">
-                                                "Optimized for techno performance (Pro version)"
-                                            </div>
-                                        </div>
-                                        <div class="template-item disabled">
-                                            <div class="template-name">"Ambient Template"</div>
-                                            <div class="template-description">
-                                                "Smooth transitions for ambient music (Pro version)"
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        },
-                        _ => view! { <div>"Invalid tab"</div> }
-                    }}
+                    <Show
+                        when=move || active_tab.get() == "existing"
+                        fallback=new_view
+                    >
+                        {existing_view}
+                    </Show>
                 </div>
-                
+
+                /* ----- footer ----- */
                 <div class="dialog-footer">
-                    {move || match active_tab.get().as_str() {
-                        "existing" => view! {
-                            <button 
-                                class="button secondary"
-                                on:click=move |_| on_close.call(())
-                            >
-                                "Cancel"
+                    <button class="button secondary"
+                            on:click=move |_| on_close.clone().run(())>
+                        "Cancel"
+                    </button>
+
+                    {move || {
+                        let is_existing = active_tab.get() == "existing";
+                        let disabled = move || {
+                            if is_existing {
+                                selected.get().is_none()
+                            } else {
+                                new_name.get().trim().is_empty()
+                            }
+                        };
+                        let onclick = move |e: MouseEvent| {
+                            e.stop_propagation();
+                            if is_existing { handle_load(e) } else { handle_create(e) }
+                        };
+                        let label = if is_existing { "Load Project" } else { "Create Project" };
+                        view!{
+                            <button class="button primary"
+                                    disabled=disabled
+                                    on:click=onclick>
+                                {label}
                             </button>
-                            <button 
-                                class="button primary"
-                                disabled=move || selected_project.get().is_none()
-                                on:click=handle_load
-                            >
-                                "Load Project"
-                            </button>
-                        },
-                        "new" => view! {
-                            <button 
-                                class="button secondary"
-                                on:click=move |_| on_close.call(())
-                            >
-                                "Cancel"
-                            </button>
-                            <button 
-                                class="button primary"
-                                disabled=move || new_name.get().trim().is_empty()
-                                on:click=handle_create
-                            >
-                                "Create Project"
-                            </button>
-                        },
-                        _ => view! {}
+                        }
                     }}
                 </div>
             </div>
         </div>
-    }
-}
-
-// Helper function to get input value
-fn event_target_value(event: &leptos::ev::Event) -> String {
-    event_target::<web_sys::HtmlInputElement>(event).value()
-}
-
-// Helper function to get the event target
-fn event_target<T: wasm_bindgen::JsCast>(event: &leptos::ev::Event) -> T {
-    event.target().unwrap().unchecked_into::<T>()
-}
-
-// Helper function to format date strings
-fn format_date(date_str: &str) -> String {
-    // Simple format, in a real app you might use a date library
-    let parts: Vec<&str> = date_str.split('T').collect();
-    if parts.len() > 1 {
-        parts[0].to_string()
-    } else {
-        date_str.to_string()
     }
 }

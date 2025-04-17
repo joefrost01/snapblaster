@@ -1,11 +1,8 @@
+use leptos::prelude::*;
 use leptos::*;
-use leptos::prelude::{Callback, ClassAttribute, OnAttribute};
 
 #[component]
-pub fn ErrorDialog(
-    message: String,
-    on_close: Callback<()>,
-) -> impl IntoView {
+pub fn ErrorDialog(message: String, on_close: Callback<()>) -> impl IntoView {
     view! {
         <div class="dialog-overlay">
             <div class="dialog error-dialog">
@@ -13,7 +10,7 @@ pub fn ErrorDialog(
                     <h2>"Error"</h2>
                     <button
                         class="close-button"
-                        on:click=move |_| on_close.call(())
+                        on:click=move |_| on_close.clone().run(())
                     >
                         "×"
                     </button>
@@ -24,7 +21,7 @@ pub fn ErrorDialog(
                 <div class="dialog-footer">
                     <button
                         class="button primary"
-                        on:click=move |_| on_close.call(())
+                        on:click=move |_| on_close.clone().run(())
                     >
                         "Close"
                     </button>

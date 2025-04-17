@@ -1,9 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
-use crate::models::scene::Scene;
 use crate::models::cc::CCValue;
+use crate::models::scene::Scene;
 
 /// Metadata for a CC definition within a project
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -242,7 +242,8 @@ impl Project {
             return None;
         }
 
-        self.grid_assignments.get(&position)
+        self.grid_assignments
+            .get(&position)
             .and_then(|id| self.scenes.get(id))
     }
 

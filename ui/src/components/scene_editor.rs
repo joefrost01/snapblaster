@@ -1,9 +1,10 @@
+use crate::components::CCEditor;
+use crate::models::{CCDefinition, Scene, TriggerMode};
+use leptos::prelude::*;
 use leptos::*;
 use std::collections::HashMap;
-use leptos::prelude::{create_memo, create_signal, Callback, Get, Set};
 use wasm_bindgen::JsCast;
-use crate::models::{Scene, CCValue, CCDefinition, TriggerMode};
-use crate::components::CCEditor;
+use web_sys::HtmlInputElement;
 
 #[component]
 pub fn SceneEditor(
@@ -11,192 +12,151 @@ pub fn SceneEditor(
     cc_definitions: HashMap<String, CCDefinition>,
     on_update: Callback<Scene>,
 ) -> impl IntoView {
-    // Create local state for editing
+    // ------------- signals -------------
     let (name, set_name) = create_signal(scene.name.clone());
-    let (description, set_description) = create_signal(scene.description.clone().unwrap_or_default());
-    let (trigger_mode, set_trigger_mode) = create_signal(scene.trigger_mode.clone());
-    let (cc_values, set_cc_values) = create_signal(scene.cc_values.clone());
-    let (is_editing, set_is_editing) = create_signal(false);
-    let (is_dirty, set_is_dirty) = create_signal(false);
+    let (desc, set_desc) = create_signal(scene.description.clone().unwrap_or_default());
+    let (mode, set_mode) = create_signal(scene.trigger_mode.clone());
+    let (cc_vals, set_vals) = create_signal(scene.cc_values.clone());
+    let (is_edit, set_edit) = create_signal(false);
+    let (dirty, set_dirty) = create_signal(false);
 
-    // String representation of trigger mode for the UI
-    let trigger_mode_string = create_memo(move |_| {
-        match trigger_mode.get() {
-            TriggerMode::Immediate => "Immediate".to_string(),
-            TriggerMode::NextBeat => "Next Beat".to_string(),
-            TriggerMode::Beats(n) => format!("{} Beats", n),
-            TriggerMode::NextBar => "Next Bar".to_string(),
-        }
-    });
+    let scene_orig = scene.clone();
 
-    // Group CC values by channel
-    let grouped_cc_values = create_memo(move |_| {
-        let values = cc_values.get();
-        let mut grouped = HashMap::new();
-
-        for (key, value) in values.iter() {
-            let parts: Vec<&str> = key.split(':').collect();
-            if parts.len() == 2 {
-                if let (Ok(channel), Ok(cc_number)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
-                    let group_key = format!("Channel {}", channel);
-                    let entry = grouped.entry(group_key).or_insert_with(Vec::new);
-                    entry.push((cc_number, value.clone()));
-                }
-            }
-        }
-
-        // Sort each group by CC number
-        for values in grouped.values_mut() {
-            values.sort_by_key(|(num, _)| *num);
-        }
-
-        grouped
-    });
-
-    // Handle updating a CC value
-    let update_cc_value = move |channel: u8, cc_number: u8, new_value: CCValue| {
-        let key = format!("{}:{}", channel, cc_number);
-        let mut updated = cc_values.get();
-        updated.insert(key, new_value);
-        set_cc_values.set(updated);
-        set_is_dirty.set(true);
+    // ------------- save / cancel -------------
+    let save = move |_| {
+        let mut s2 = scene.clone();
+        s2.name = name.get();
+        s2.description = Some(desc.get()).filter(|s| !s.is_empty());
+        s2.trigger_mode = mode.get();
+        s2.cc_values = cc_vals.get();
+        on_update.run(s2);
+        set_edit.set(false);
+        set_dirty.set(false);
     };
 
-    // Handle saving changes
-    let save_changes = move |_| {
-        let mut updated_scene = scene.clone();
-        updated_scene.name = name.get();
-        updated_scene.description = Some(description.get()).filter(|s| !s.is_empty());
-        updated_scene.trigger_mode = trigger_mode.get();
-        updated_scene.cc_values = cc_values.get();
-
-        on_update.call(updated_scene);
-        set_is_editing.set(false);
-        set_is_dirty.set(false);
+    let cancel = move |_| {
+        set_edit.set(false);
+        set_name.set(scene_orig.name.clone());
+        set_desc.set(scene_orig.description.clone().unwrap_or_default());
+        set_mode.set(scene_orig.trigger_mode.clone());
+        set_vals.set(scene_orig.cc_values.clone());
+        set_dirty.set(false);
     };
 
+    // ------------- view -------------
     view! {
         <div class="scene-editor-container">
+            /* header */
             <div class="scene-editor-header">
-                {move || if is_editing.get() {
-                    view! {
-                        <div class="edit-header">
-                            <input 
-                                type="text"
-                                value=name
-                                on:input=move |e| {
-                                    set_name.set(event_target_value(&e));
-                                    set_is_dirty.set(true);
-                                }
-                                placeholder="Scene Name"
-                            />
-                            <div class="edit-actions">
-                                <button 
-                                    class="save-button" 
-                                    on:click=save_changes
-                                    disabled=move || !is_dirty.get()
-                                >
-                                    "Save"
-                                </button>
-                                <button 
-                                    class="cancel-button" 
-                                    on:click=move |_| {
-                                        set_is_editing.set(false);
-                                        // Reset to original values
-                                        set_name.set(scene.name.clone());
-                                        set_description.set(scene.description.clone().unwrap_or_default());
-                                        set_trigger_mode.set(scene.trigger_mode.clone());
-                                        set_cc_values.set(scene.cc_values.clone());
-                                        set_is_dirty.set(false);
-                                    }
-                                >
-                                    "Cancel"
-                                </button>
-                            </div>
-                        </div>
-                    }
-                } else {
-                    view! {
-                        <div class="view-header">
-                            <h2>{name}</h2>
-                            <button 
-                                class="edit-button" 
-                                on:click=move |_| set_is_editing.set(true)
-                            >
-                                "Edit"
-                            </button>
-                        </div>
-                    }
-                }}
+                <div class="edit-header"
+                     style=move || if is_edit.get() { "" } else { "display:none;" }>
+                    <input type="text"
+                           value=name
+                           placeholder="Scene Name"
+                           on:input=move |e| {
+                               set_name.set(event_target::<HtmlInputElement>(&e).value());
+                               set_dirty.set(true);
+                           } />
+                    <div class="edit-actions">
+                        <button on:click=save
+                                disabled=move || !dirty.get()
+                                class="save-button">"Save"</button>
+                        <button on:click=cancel class="cancel-button">"Cancel"</button>
+                    </div>
+                </div>
+
+                <div class="view-header"
+                     style=move || if !is_edit.get() { "" } else { "display:none;" }>
+                    <h2>{ name }</h2>
+                    <button on:click=move |_| set_edit.set(true)
+                            class="edit-button">"Edit"</button>
+                </div>
             </div>
-            
+
+            /* meta + CC list */
             <div class="scene-editor-details">
                 <div class="scene-meta">
                     <div class="detail-row">
                         <span class="label">"Trigger Mode:"</span>
-                        <span class="value">{trigger_mode_string}</span>
+                        <span class="value">
+                            {move || match mode.get() {
+                                TriggerMode::Immediate => "Immediate",
+                                TriggerMode::NextBeat  => "Next Beat",
+                                TriggerMode::Beats(n)  => return format!("{n} Beats"),
+                                TriggerMode::NextBar   => "Next Bar",
+                            }.into()}
+                        </span>
                     </div>
-                    
-                    {move || if !description.get().is_empty() {
-                        view! {
-                            <div class="detail-row">
-                                <span class="label">"Description:"</span>
-                                <span class="value">{description}</span>
-                            </div>
-                        }
-                    } else {
-                        view! {}
-                    }}
+
+                    <div class="detail-row"
+                         style=move || if desc.get().is_empty() { "display:none;" } else { "" }>
+                        <span class="label">"Description:"</span>
+                        <span class="value">{ move || desc.get() }</span>
+                    </div>
                 </div>
-                
+
                 <div class="cc-values-container">
                     <h3>"CC Values"</h3>
-                    
-                    {move || {
-                        let groups = grouped_cc_values.get();
-                        
-                        if groups.is_empty() {
-                            view! { <p class="empty-message">"No CC values in this scene"</p> }
-                        } else {
-                            groups.into_iter().map(|(group_name, values)| {
-                                view! {
-                                    <div class="cc-group">
-                                        <h4>{group_name}</h4>
-                                        <div class="cc-list">
-                                            {values.into_iter().map(|(cc_number, value)| {
-                                                let cc_def = cc_definitions.values()
-                                                    .find(|def| def.channel == value.channel && def.cc_number == cc_number)
-                                                    .cloned();
-                                                
-                                                view! {
-                                                    <CCEditor
-                                                        value=value.clone()
-                                                        definition=cc_def
-                                                        is_editing=is_editing
-                                                        on_change=move |new_value| {
-                                                            update_cc_value(value.channel, cc_number, new_value);
-                                                        }
-                                                    />
-                                                }
-                                            }).collect::<Vec<_>>()}
-                                        </div>
-                                    </div>
-                                }
-                            }).collect::<Vec<_>>()
-                        }
-                    }}
+
+                    <div class="cc-list"
+                         style=move || if cc_vals.get().is_empty() { "display:none;" } else { "" }>
+                        {move || {
+                            cc_vals.get()
+                                   .iter()
+                                   .filter_map(|(k, v)| {
+                                       let mut parts = k.split(':');
+                                       match (parts.next(), parts.next()) {
+                                           (Some(ch), Some(ccn)) if ch.parse::<u8>().is_ok() && ccn.parse::<u8>().is_ok() => {
+                                               Some((ch.parse::<u8>().unwrap(), ccn.parse::<u8>().unwrap(), v.clone()))
+                                           },
+                                           _ => None,
+                                       }
+                                   })
+                                   .fold(HashMap::<u8, Vec<_>>::new(), |mut acc, (ch, ccn, v)| {
+                                       acc.entry(ch).or_default().push((ccn, v));
+                                       acc
+                                   })
+                                   .into_iter()
+                                   .map(|(ch, mut vs)| { vs.sort_by_key(|(n, _)| *n); (ch, vs) })
+                                   .map(|(ch, vs)| {
+                                       let group = format!("Channel {ch}");
+                                       view! {
+                                           <div class="cc-group">
+                                               <h4>{ group }</h4>
+                                               <div class="cc-list">
+                                                   {vs.into_iter().map(|(ccn, vv)| {
+                                                       let key   = format!("{}:{}", vv.channel, ccn);
+                                                       let def   = cc_definitions.get(&key).cloned();
+                                                       let vv_cp = vv.clone();
+                                                       view! {
+                                                           <CCEditor value=vv
+                                                                     definition=def
+                                                                     is_editing=is_edit
+                                                                     on_change=Callback::new(move |nv| {
+                                                                         let mut m = cc_vals.get();
+                                                                         m.insert(format!("{}:{}", vv_cp.channel, ccn), nv);
+                                                                         set_vals.set(m);
+                                                                         set_dirty.set(true);
+                                                                     }) />
+                                                       }
+                                                   }).collect::<Vec<_>>()}
+                                               </div>
+                                           </div>
+                                       }
+                                   }).collect::<Vec<_>>()
+                        }}
+                    </div>
+
+                    <p class="empty-message"
+                       style=move || if cc_vals.get().is_empty() { "" } else { "display:none;" }>
+                        "No CC values in this scene"
+                    </p>
                 </div>
             </div>
         </div>
     }
 }
 
-// Helper function to get input value
-fn event_target_value(event: &leptos::ev::Event) -> String {
-    event_target::<web_sys::HtmlInputElement>(event).value()
-}
-
-// Helper function to get the event target
-fn event_target<T: wasm_bindgen::JsCast>(event: &leptos::ev::Event) -> T {
-    event.target().unwrap().unchecked_into::<T>()
+fn event_target<T: JsCast>(ev: &leptos::ev::Event) -> T {
+    ev.target().unwrap().unchecked_into()
 }

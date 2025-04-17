@@ -1,236 +1,218 @@
-use leptos::*;
-use leptos::prelude::{create_effect, create_signal, ClassAttribute, Get, OnAttribute, Set};
-use leptos_meta::*;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::spawn_local;
-
 use crate::components::*;
-use crate::models;
+use crate::models::{MidiDevice, Project, Scene};
 use crate::tauri_commands::*;
-use crate::models::*;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use wasm_bindgen::JsCast;
+
+/* helper: DOM cast */
+fn event_target<T: JsCast>(e: &leptos::ev::Event) -> T {
+    e.target().unwrap().unchecked_into()
+}
 
 #[component]
 pub fn App() -> impl IntoView {
-    // Application state
-    let (active_project, set_active_project) = create_signal(None::<models::Project>);
-    let (active_scene, set_active_scene) = create_signal(None::<models::Scene>);
-    let (midi_devices, set_midi_devices) = create_signal(Vec::<models::MidiDevice>::new());
-    let (is_loading, set_is_loading) = create_signal(false);
-    let (error_message, set_error_message) = create_signal(None::<String>);
-    let (show_project_dialog, set_show_project_dialog) = create_signal(false);
-    let (show_settings_dialog, set_show_settings_dialog) = create_signal(false);
-    let (show_ai_prompt_dialog, set_show_ai_prompt_dialog) = create_signal(false);
+    /* ---------- state ---------- */
+    let (proj, set_proj) = create_signal(None::<Project>);
+    let (scene, set_scene) = create_signal(None::<Scene>);
+    let (devices, set_dev) = create_signal(Vec::<MidiDevice>::new());
+    let (loading, set_load) = create_signal(false);
+    let (error, set_err) = create_signal(None::<String>);
 
-    // Load MIDI devices on component mount
+    let (show_proj, set_show_proj) = create_signal(false);
+    let (show_set, set_show_set) = create_signal(false);
+    let (show_ai, set_show_ai) = create_signal(false);
+
+    /* ---------- side‑effects ---------- */
     create_effect(move |_| {
         spawn_local(async move {
             match list_midi_devices().await {
-                Ok(devices) => set_midi_devices.set(devices),
-                Err(err) => set_error_message.set(Some(err))
+                Ok(d) => set_dev.set(d),
+                Err(e) => set_err.set(Some(e)),
             }
         });
     });
 
-    // Project actions
+    /* ---------- helpers ---------- */
     let load_project = move |id: String| {
-        set_is_loading.set(true);
+        set_load.set(true);
         spawn_local(async move {
             match load_project_command(id).await {
-                Ok(project) => {
-                    set_active_project.set(Some(project));
-                    set_active_scene.set(None);
+                Ok(p) => {
+                    set_proj.set(Some(p));
+                    set_scene.set(None);
                 }
-                Err(err) => set_error_message.set(Some(err))
+                Err(e) => set_err.set(Some(e)),
             }
-            set_is_loading.set(false);
+            set_load.set(false);
         });
     };
 
-    let create_new_project = move |name: String, author: Option<String>| {
-        set_is_loading.set(true);
+    let create_project = move |(name, author): (String, Option<String>)| {
+        set_load.set(true);
         spawn_local(async move {
             match create_project_command(name, author).await {
                 Ok(id) => load_project(id),
-                Err(err) => {
-                    set_error_message.set(Some(err));
-                    set_is_loading.set(false);
+                Err(e) => {
+                    set_err.set(Some(e));
+                    set_load.set(false);
                 }
             }
         });
     };
 
-    let activate_scene = move |id: String| {
+    let activate_scene = move |sid: String| {
         spawn_local(async move {
-            match activate_scene_command(id.clone()).await {
-                Ok(_) => {
-                    if let Some(project) = active_project.get() {
-                        if let Some(scene) = project.scenes.get(&id) {
-                            set_active_scene.set(Some(scene.clone()));
-                        }
+            if activate_scene_command(sid.clone()).await.is_ok() {
+                if let Some(p) = proj.get() {
+                    if let Some(s) = p.scenes.get(&sid) {
+                        set_scene.set(Some(s.clone()));
                     }
                 }
-                Err(err) => set_error_message.set(Some(err))
             }
         });
     };
 
-    let assign_to_grid = move |scene_id: String, position: u8| {
+    let assign_scene = move |(sid, pos): (String, u8)| {
         spawn_local(async move {
-            match assign_scene_to_grid_command(scene_id, position).await {
+            match assign_scene_to_grid_command(sid, pos).await {
                 Ok(_) => {
-                    // Refresh project to get updated grid assignments
-                    if let Some(project) = active_project.get() {
-                        load_project(project.id.clone());
+                    if let Some(p) = proj.get() {
+                        load_project(p.id.clone());
                     }
                 }
-                Err(err) => set_error_message.set(Some(err))
+                Err(e) => set_err.set(Some(e)),
             }
         });
     };
 
+    /* ---------- view ---------- */
     view! {
         <div class="app-container">
+            /* ----- header ----- */
             <header class="app-header">
-                <div class="logo">
-                    <h1>Snap-Blaster</h1>
-                </div>
-                <div class="header-controls">
-                    <button on:click=move |_| set_show_project_dialog.set(true)>
-                        "Projects"
-                    </button>
-                    <button on:click=move |_| set_show_settings_dialog.set(true)>
-                        "Settings"
-                    </button>
-                </div>
+                <h1>"Snap‑Blaster"</h1>
+                <button on:click=move |_| set_show_proj.set(true)>"Projects"</button>
+                <button on:click=move |_| set_show_set.set(true) >"Settings"</button>
             </header>
+
+            /* ----- body ----- */
             <main class="app-main">
+                /* sidebar */
                 <aside class="app-sidebar">
-                    <div class="sidebar-section">
-                        <h2>Project</h2>
-                        {move || match active_project.get() {
-                            Some(project) => view! {
+                    <h2>"Project"</h2>
+                    <Show
+                        when=move || proj.get().is_some()
+                        fallback=move || view!{
+                            <div class="project-placeholder">
+                                <p>"No project loaded"</p>
+                                <button on:click=move |_| set_show_proj.set(true)>"Open Project"</button>
+                            </div>
+                        }
+                    >
+                        {move || {
+                            let p = proj.get().unwrap();
+                            view!{
                                 <div class="project-info">
-                                    <h3>{project.name}</h3>
-                                    <p>{project.description.unwrap_or_default()}</p>
-                                    <button on:click=move |_| set_show_ai_prompt_dialog.set(true)>
-                                        "Create AI Scene"
-                                    </button>
-                                </div>
-                            },
-                            None => view! {
-                                <div class="project-placeholder">
-                                    <p>"No project loaded"</p>
-                                    <button on:click=move |_| set_show_project_dialog.set(true)>
-                                        "Open Project"
-                                    </button>
+                                    <h3>{p.name.clone()}</h3>
+                                    <p>{p.description.clone().unwrap_or_default()}</p>
+                                    <button on:click=move |_| set_show_ai.set(true)>"Create AI Scene"</button>
                                 </div>
                             }
                         }}
-                    </div>
-                    <div class="sidebar-section">
-                        <h2>MIDI Devices</h2>
-                        <MidiDeviceList
-                            devices=midi_devices
-                            on_connect=move |device_id| {
-                                spawn_local(async move {
-                                    let _ = connect_controller_command(device_id).await;
-                                });
-                            }
-                        />
-                    </div>
+                    </Show>
+
+                    <h2>"MIDI Devices"</h2>
+                    <midi_monitor::MidiDeviceList
+                        devices=devices
+                        on_connect=Callback::new(move |d| spawn_local(async move {
+                            let _ = connect_controller_command(d).await;
+                        }))
+                    />
                 </aside>
-                <div class="app-content">
+
+                /* main area */
+                <section class="app-content">
+                    /* grid */
                     <div class="scene-grid-container">
-                        {move || match active_project.get() {
-                            Some(project) => view! {
-                                <SceneGrid
-                                    project=project
-                                    active_scene=active_scene
-                                    on_activate=activate_scene
-                                    on_assign=assign_to_grid
+                        <Show
+                            when=move || proj.get().is_some()
+                            fallback=move || view!{ <div class="grid-placeholder">"Please load a project"</div> }
+                        >
+                            {move || view!{
+                                <grid::SceneGrid
+                                    project=proj.get().unwrap()
+                                    active_scene=scene
+                                    on_activate=Callback::new(activate_scene.clone())
+                                    on_assign=Callback::new(assign_scene.clone())
                                 />
-                            },
-                            None => view! { <div class="no-project-message">"Please load a project"</div> }
-                        }}
+                            }}
+                        </Show>
                     </div>
+
+                    /* editor */
                     <div class="scene-editor">
-                        {move || match active_scene.get() {
-                            Some(scene) => view! {
-                                <SceneEditor
-                                    scene=scene
-                                    cc_definitions=active_project.get().map(|p| p.cc_definitions).unwrap_or_default()
-                                    on_update=move |updated| {
-                                        // Handle scene updates
-                                        // This would update the scene and save it
-                                        // Simplified for now
-                                    }
+                        <Show
+                            when=move || scene.get().is_some()
+                            fallback=move || view!{ <div class="editor-placeholder">"Select a scene to edit"</div> }
+                        >
+                            {move || view!{
+                                <scene_editor::SceneEditor
+                                    scene=scene.get().unwrap()
+                                    cc_definitions=proj.get().map(|p| p.cc_definitions.clone()).unwrap_or_default()
+                                    on_update=Callback::new(|_| {/* TODO */})
                                 />
-                            },
-                            None => view! { <div class="no-scene-message">"Select a scene to edit"</div> }
-                        }}
+                            }}
+                        </Show>
                     </div>
-                </div>
+                </section>
             </main>
 
-            // Dialogs
-            {move || if show_project_dialog.get() {
-                view! {
+            /* dialogs */
+            <Show when=move || show_proj.get() fallback=|| ().into_view()>
+                {move || view!{
                     <dialogs::ProjectDialog
-                        on_close=move || set_show_project_dialog.set(false)
-                        on_create=create_new_project
-                        on_load=load_project
+                        on_close=Callback::new(move |_| set_show_proj.set(false))
+                        on_create=Callback::new(create_project.clone())
+                        on_load=Callback::new(load_project.clone())
                     />
-                }
-            } else {
-                view! {}
-            }}
+                }}
+            </Show>
 
-            {move || if show_settings_dialog.get() {
-                view! {
-                    <dialogs::SettingsDialog
-                        on_close=move || set_show_settings_dialog.set(false)
-                        project=active_project.get()
-                        on_save=move |_updated| {
-                            // Handle settings update
-                            set_show_settings_dialog.set(false);
-                        }
+            <Show when=move || show_set.get() fallback=|| ().into_view()>
+                {move || view!{
+                    <dialogs::SettingsPanel
+                        project=proj.get()
+                        on_close=Callback::new(move |_| set_show_set.set(false))
+                        _on_save=Callback::new(move |_p| set_show_set.set(false))
                     />
-                }
-            } else {
-                view! {}
-            }}
+                }}
+            </Show>
 
-            {move || if show_ai_prompt_dialog.get() {
-                view! {
+            <Show when=move || show_ai.get() fallback=|| ().into_view()>
+                {move || view!{
                     <dialogs::AIPromptDialog
-                        on_close=move || set_show_ai_prompt_dialog.set(false)
-                        project=active_project.get()
-                        on_generate=move |_params| {
-                            // Handle AI scene generation
-                            set_show_ai_prompt_dialog.set(false);
-                        }
+                        project=proj.get()
+                        on_close=Callback::new(move |_| set_show_ai.set(false))
+                        on_generate=Callback::new(move |_p| set_show_ai.set(false))
                     />
-                }
-            } else {
-                view! {}
-            }}
+                }}
+            </Show>
 
-            {move || if let Some(message) = error_message.get() {
-                view! {
+            <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                {move || view!{
                     <dialogs::ErrorDialog
-                        message=message
-                        on_close=move || set_error_message.set(None)
+                        message=error.get().unwrap()
+                        on_close=Callback::new(move |_| set_err.set(None))
                     />
-                }
-            } else {
-                view! {}
-            }}
+                }}
+            </Show>
 
-            {move || if is_loading.get() {
-                view! { <div class="loading-overlay">"Loading..."</div> }
-            } else {
-                view! {}
-            }}
+            /* global loading */
+            <div class="loading-overlay"
+                 style=move || if loading.get() { "" } else { "display:none;" }>
+                "Loading…"
+            </div>
         </div>
     }
 }

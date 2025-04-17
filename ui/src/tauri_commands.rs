@@ -1,7 +1,7 @@
+use crate::models::*;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use serde::{Serialize, Deserialize};
-use crate::models::*;
 
 // Helper function to invoke Tauri commands
 async fn invoke<T, R>(command: &str, args: Option<T>) -> Result<R, String>
@@ -35,7 +35,8 @@ where
             &args_value,
             &JsValue::NULL, // No options
         ),
-    ).map_err(|e| format!("Failed to call Tauri invoke: {:?}", e))?;
+    )
+    .map_err(|e| format!("Failed to call Tauri invoke: {:?}", e))?;
 
     // Wait for the promise to resolve
     let result = JsFuture::from(promise.dyn_into::<js_sys::Promise>().unwrap())
@@ -57,13 +58,24 @@ pub async fn get_active_project() -> Result<Project, String> {
     let response: CommandResponse<Project> = invoke("get_active_project", None::<()>).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(project), .. } => Ok(project),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(project),
+            ..
+        } => Ok(project),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error getting active project".to_string()),
     }
 }
 
-pub async fn create_project_command(name: String, author: Option<String>) -> Result<String, String> {
+pub async fn create_project_command(
+    name: String,
+    author: Option<String>,
+) -> Result<String, String> {
     #[derive(Serialize)]
     struct CreateProjectArgs {
         name: String,
@@ -74,8 +86,16 @@ pub async fn create_project_command(name: String, author: Option<String>) -> Res
     let response: CommandResponse<String> = invoke("create_project", Some(args)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(id), .. } => Ok(id),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(id),
+            ..
+        } => Ok(id),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error creating project".to_string()),
     }
 }
@@ -90,8 +110,16 @@ pub async fn load_project_command(id: String) -> Result<Project, String> {
     let response: CommandResponse<Project> = invoke("load_project", Some(args)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(project), .. } => Ok(project),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(project),
+            ..
+        } => Ok(project),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error loading project".to_string()),
     }
 }
@@ -100,15 +128,26 @@ pub async fn save_project() -> Result<bool, String> {
     let response: CommandResponse<bool> = invoke("save_project", None::<()>).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(saved), .. } => Ok(saved),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(saved),
+            ..
+        } => Ok(saved),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error saving project".to_string()),
     }
 }
 
 // Scene management commands
 
-pub async fn create_scene_command(name: String, description: Option<String>) -> Result<String, String> {
+pub async fn create_scene_command(
+    name: String,
+    description: Option<String>,
+) -> Result<String, String> {
     #[derive(Serialize)]
     struct CreateSceneArgs {
         name: String,
@@ -119,8 +158,16 @@ pub async fn create_scene_command(name: String, description: Option<String>) -> 
     let response: CommandResponse<String> = invoke("create_scene", Some(args)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(id), .. } => Ok(id),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(id),
+            ..
+        } => Ok(id),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error creating scene".to_string()),
     }
 }
@@ -135,8 +182,16 @@ pub async fn get_scene_command(id: String) -> Result<Scene, String> {
     let response: CommandResponse<Scene> = invoke("get_scene", Some(args)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(scene), .. } => Ok(scene),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(scene),
+            ..
+        } => Ok(scene),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error getting scene".to_string()),
     }
 }
@@ -151,8 +206,16 @@ pub async fn activate_scene_command(id: String) -> Result<bool, String> {
     let response: CommandResponse<bool> = invoke("activate_scene", Some(args)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(activated), .. } => Ok(activated),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(activated),
+            ..
+        } => Ok(activated),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error activating scene".to_string()),
     }
 }
@@ -168,8 +231,16 @@ pub async fn assign_scene_to_grid_command(scene_id: String, position: u8) -> Res
     let response: CommandResponse<bool> = invoke("assign_scene_to_grid", Some(args)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(assigned), .. } => Ok(assigned),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(assigned),
+            ..
+        } => Ok(assigned),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error assigning scene to grid".to_string()),
     }
 }
@@ -177,11 +248,20 @@ pub async fn assign_scene_to_grid_command(scene_id: String, position: u8) -> Res
 // MIDI device commands
 
 pub async fn list_midi_devices() -> Result<Vec<MidiDevice>, String> {
-    let response: CommandResponse<Vec<MidiDevice>> = invoke("list_midi_devices", None::<()>).await?;
+    let response: CommandResponse<Vec<MidiDevice>> =
+        invoke("list_midi_devices", None::<()>).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(devices), .. } => Ok(devices),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(devices),
+            ..
+        } => Ok(devices),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error listing MIDI devices".to_string()),
     }
 }
@@ -196,8 +276,16 @@ pub async fn connect_controller_command(device_id: String) -> Result<bool, Strin
     let response: CommandResponse<bool> = invoke("connect_controller", Some(args)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(connected), .. } => Ok(connected),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(connected),
+            ..
+        } => Ok(connected),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error connecting controller".to_string()),
     }
 }
@@ -206,8 +294,16 @@ pub async fn disconnect_controller_command() -> Result<bool, String> {
     let response: CommandResponse<bool> = invoke("disconnect_controller", None::<()>).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(disconnected), .. } => Ok(disconnected),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(disconnected),
+            ..
+        } => Ok(disconnected),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error disconnecting controller".to_string()),
     }
 }
@@ -220,12 +316,24 @@ pub async fn send_cc_command(channel: u8, cc_number: u8, value: u8) -> Result<bo
         value: u8,
     }
 
-    let args = SendCCArgs { channel, cc_number, value };
+    let args = SendCCArgs {
+        channel,
+        cc_number,
+        value,
+    };
     let response: CommandResponse<bool> = invoke("send_cc", Some(args)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(sent), .. } => Ok(sent),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(sent),
+            ..
+        } => Ok(sent),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error sending CC".to_string()),
     }
 }
@@ -236,18 +344,37 @@ pub async fn generate_scene_command(params: GenerationParams) -> Result<Generate
     let response: CommandResponse<GeneratedScene> = invoke("generate_scene", Some(params)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(generated), .. } => Ok(generated),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(generated),
+            ..
+        } => Ok(generated),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error generating scene".to_string()),
     }
 }
 
-pub async fn save_generated_scene_command(generated_scene: GeneratedScene) -> Result<String, String> {
-    let response: CommandResponse<String> = invoke("save_generated_scene", Some(generated_scene)).await?;
+pub async fn save_generated_scene_command(
+    generated_scene: GeneratedScene,
+) -> Result<String, String> {
+    let response: CommandResponse<String> =
+        invoke("save_generated_scene", Some(generated_scene)).await?;
 
     match response {
-        CommandResponse { success: true, data: Some(id), .. } => Ok(id),
-        CommandResponse { success: false, error: Some(err), .. } => Err(err),
+        CommandResponse {
+            success: true,
+            data: Some(id),
+            ..
+        } => Ok(id),
+        CommandResponse {
+            success: false,
+            error: Some(err),
+            ..
+        } => Err(err),
         _ => Err("Unknown error saving generated scene".to_string()),
     }
 }

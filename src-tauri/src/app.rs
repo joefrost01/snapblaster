@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, Runtime};
 
+use crate::ai::generator::SceneGenerator;
 use crate::commands::AppState;
-use crate::project::manager::ProjectManager;
-use crate::project::storage::ProjectStorage;
+use crate::link::integration::LinkIntegration;
 use crate::midi::devices::DeviceRegistryFactory;
 use crate::midi::engine::MidiEngine;
-use crate::ai::generator::SceneGenerator;
-use crate::link::integration::LinkIntegration;
+use crate::project::manager::ProjectManager;
+use crate::project::storage::ProjectStorage;
 
 /// Initialize the application
 pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -16,15 +16,22 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .map_err(|e| format!("Failed to initialize project storage: {}", e))?;
 
     // Initialize device registry
-    let device_registry = Arc::new(DeviceRegistryFactory::create()
-        .map_err(|e| format!("Failed to initialize device registry: {}", e))?);
+    let device_registry = Arc::new(
+        DeviceRegistryFactory::create()
+            .map_err(|e| format!("Failed to initialize device registry: {}", e))?,
+    );
 
     // Initialize MIDI engine
-    let midi_engine = Arc::new(Mutex::new(MidiEngine::new()
-        .map_err(|e| format!("Failed to initialize MIDI engine: {}", e))?));
+    let midi_engine =
+        Arc::new(Mutex::new(MidiEngine::new().map_err(|e| {
+            format!("Failed to initialize MIDI engine: {}", e)
+        })?));
 
     // Start the MIDI engine
-    midi_engine.lock().unwrap().start()
+    midi_engine
+        .lock()
+        .unwrap()
+        .start()
         .map_err(|e| format!("Failed to start MIDI engine: {}", e))?;
 
     // Initialize project manager

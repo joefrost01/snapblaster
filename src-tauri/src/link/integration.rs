@@ -1,7 +1,7 @@
+use rusty_link::SessionState;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
-use rusty_link::SessionState;
+use std::time::Duration;
 
 /// Ableton Link integration
 ///
@@ -127,10 +127,14 @@ impl LinkIntegration {
             while *enabled.lock().unwrap() {
                 if link_clone.lock().unwrap().num_peers() > 0 {
                     let mut session_state = SessionState::new();
-                    link_clone.lock().unwrap().capture_app_session_state(&mut session_state);
+                    link_clone
+                        .lock()
+                        .unwrap()
+                        .capture_app_session_state(&mut session_state);
 
                     // Get the current beat position
-                    let beat = session_state.beat_at_time(link_clone.lock().unwrap().clock_micros(), 4.0);
+                    let beat =
+                        session_state.beat_at_time(link_clone.lock().unwrap().clock_micros(), 4.0);
 
                     // Rest of the thread function remains the same,
                     // just replace any reference to 'link' with 'link_clone'

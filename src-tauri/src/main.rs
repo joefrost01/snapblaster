@@ -1,12 +1,12 @@
 use tauri::{Error, Runtime};
 
+mod ai;
 mod app;
 mod commands;
-mod project;
-mod models;
-mod midi;
 mod link;
-mod ai;
+mod midi;
+mod models;
+mod project;
 
 #[cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -39,19 +39,16 @@ fn main() {
             commands::import_project,
             commands::export_project,
             commands::close_project,
-            
             // Scene commands
             commands::create_scene,
             commands::get_scene,
             commands::activate_scene,
             commands::assign_scene_to_grid,
-            
             // MIDI device commands
             commands::list_midi_devices,
             commands::connect_controller,
             commands::disconnect_controller,
             commands::send_cc,
-            
             // AI generation commands
             commands::generate_scene,
             commands::save_generated_scene,

@@ -1,345 +1,304 @@
-use leptos::*;
-use std::collections::HashMap;
-use leptos::prelude::{create_memo, create_signal, Callback, Get, Set};
+use leptos::html::*;
+use leptos::prelude::*;
 use leptos::task::spawn_local;
-use web_sys::HtmlInputElement;
+use wasm_bindgen::JsCast;
 
-use crate::models::{Project, GenerationParams, CCDefinitionRef, SceneRef, Scene, GeneratedScene};
+use crate::models::{CCDefinitionRef, GeneratedScene, GenerationParams, Project, SceneRef};
 use crate::tauri_commands::{generate_scene_command, save_generated_scene_command};
+
+/* handy DOM‑cast helper */
+fn event_target<T: JsCast>(e: &leptos::ev::Event) -> T {
+    e.target().unwrap().unchecked_into()
+}
+
+/* “… and N more” — single‑path, no branching */
+#[component]
+fn MoreCcValues(count: usize) -> impl IntoView {
+    let txt = if count > 5 {
+        format!("… and {} more", count - 5)
+    } else {
+        String::new()
+    };
+    view! { <div class="more-cc-values">{txt}</div> }
+}
 
 #[component]
 pub fn AIPromptDialog(
-    #[prop(optional)]
     project: Option<Project>,
     on_close: Callback<()>,
     on_generate: Callback<GenerationParams>,
 ) -> impl IntoView {
-    // Form state
-    let (description, set_description) = create_signal(String::new());
-    let (use_transitions, set_use_transitions) = create_signal(true);
-    let (add_randomness, set_add_randomness) = create_signal(false);
-    let (selected_tags, set_selected_tags) = create_signal(Vec::<String>::new());
-    let (reference_scene, set_reference_scene) = create_signal(None::<String>);
+    /* ---------- local state ---------- */
+    let (description, set_desc) = create_signal(String::new());
+    let (use_trans, set_ut) = create_signal(true);
+    let (add_rand, set_rand) = create_signal(false);
+    let (tags, set_tags) = create_signal(Vec::<String>::new());
+    let (reference, set_ref) = create_signal(None::<String>);
 
-    // Processing state
-    let (is_generating, set_is_generating) = create_signal(false);
-    let (generated_scene, set_generated_scene) = create_signal(None::<GeneratedScene>);
-    let (error_message, set_error_message) = create_signal(None::<String>);
+    let (is_gen, set_igen) = create_signal(false);
+    let (generated, set_gen) = create_signal(None::<GeneratedScene>);
+    let (err_msg, set_err) = create_signal(None::<String>);
 
-    // Available tags from all scenes
-    let available_tags = create_memo(move |_| {
-        let mut tags = Vec::new();
+    /* ---------- derived ---------- */
+    let project_signal = create_rw_signal(project);
 
-        if let Some(project) = project.clone() {
-            for scene in project.scenes.values() {
+    let all_tags = create_memo(move |_| {
+        let mut t = Vec::<String>::new();
+        if let Some(p) = project_signal.get() {
+            for scene in p.scenes.values() {
                 for tag in &scene.tags {
-                    if !tags.contains(tag) {
-                        tags.push(tag.clone());
+                    if !t.contains(tag) {
+                        t.push(tag.clone());
                     }
                 }
             }
         }
-
-        tags.sort();
-        tags
+        t.sort();
+        t
     });
 
-    // Handle toggling a tag
-    let toggle_tag = move |tag: String| {
-        let mut current = selected_tags.get();
-
-        if current.contains(&tag) {
-            current.retain(|t| t != &tag);
+    /* ---------- helpers ---------- */
+    let toggle_tag = move |t: String| {
+        let mut cur = tags.get();
+        if !cur.iter().any(|x| x == &t) {
+            cur.push(t);
         } else {
-            current.push(tag);
+            cur.retain(|x| x != &t);
         }
-
-        set_selected_tags.set(current);
+        set_tags.set(cur);
     };
 
-    // Handle generating a scene
-    let handle_generate = move |_| {
-        set_is_generating.set(true);
-        set_error_message.set(None);
+    /* ---------- generate ---------- */
+    let gen_click = move |_| {
+        set_igen.set(true);
+        set_err.set(None);
 
-        // Only proceed if we have a project
-        let project_clone = match project.clone() {
-            Some(p) => p,
+        let proj = match project_signal.get() {
+            Some(p) => p.clone(),
             None => {
-                set_error_message.set(Some("No active project".to_string()));
-                set_is_generating.set(false);
+                set_err.set(Some("No active project".into()));
+                set_igen.set(false);
                 return;
             }
         };
 
-        // Build generation parameters
         let mut params = GenerationParams {
             description: description.get(),
-            cc_definitions: Vec::new(),
+            cc_definitions: proj
+                .cc_definitions
+                .values()
+                .map(|d| CCDefinitionRef {
+                    channel: d.channel,
+                    cc_number: d.cc_number,
+                    name: d.name.clone(),
+                    description: d.description.clone(),
+                })
+                .collect(),
             previous_scene: None,
-            use_transitions: use_transitions.get(),
-            add_randomness: add_randomness.get(),
-            tags: selected_tags.get(),
+            use_transitions: use_trans.get(),
+            add_randomness: add_rand.get(),
+            tags: tags.get(),
         };
 
-        // Add CC definitions from project
-        for cc_def in project_clone.cc_definitions.values() {
-            params.cc_definitions.push(CCDefinitionRef {
-                channel: cc_def.channel,
-                cc_number: cc_def.cc_number,
-                name: cc_def.name.clone(),
-                description: cc_def.description.clone(),
-            });
-        }
-
-        // Add reference scene if selected
-        if let Some(scene_id) = reference_scene.get() {
-            if let Some(scene) = project_clone.scenes.get(&scene_id) {
+        if let Some(id) = reference.get() {
+            if let Some(s) = proj.scenes.get(&id) {
                 params.previous_scene = Some(SceneRef {
-                    id: scene.id.clone(),
-                    name: scene.name.clone(),
-                    cc_values: scene.cc_values.clone(),
+                    id: s.id.clone(),
+                    name: s.name.clone(),
+                    cc_values: s.cc_values.clone(),
                 });
             }
         }
 
-        // Clone parameters for callback
-        let params_clone = params.clone();
-
-        // Call the generate function
+        on_generate.run(params.clone());
         spawn_local(async move {
             match generate_scene_command(params).await {
-                Ok(scene) => {
-                    set_generated_scene.set(Some(scene));
-                    set_is_generating.set(false);
-                },
-                Err(e) => {
-                    set_error_message.set(Some(format!("Failed to generate scene: {}", e)));
-                    set_is_generating.set(false);
-                }
+                Ok(sc) => set_gen.set(Some(sc)),
+                Err(e) => set_err.set(Some(format!("Failed: {e}"))),
             }
+            set_igen.set(false);
         });
-
-        // Call the callback
-        on_generate(params_clone);
     };
 
-    // Handle saving the generated scene
-    let handle_save = move |_| {
-        if let Some(generated) = generated_scene.get() {
+    /* ---------- save ---------- */
+    let save_click = move |_| {
+        if let Some(gs) = generated.get() {
             spawn_local(async move {
-                match save_generated_scene_command(generated).await {
-                    Ok(_) => {
-                        // Close the dialog after saving
-                        on_close(());
-                    },
-                    Err(e) => {
-                        set_error_message.set(Some(format!("Failed to save scene: {}", e)));
-                    }
+                match save_generated_scene_command(gs).await {
+                    Ok(_) => on_close.clone().run(()),
+                    Err(e) => set_err.set(Some(format!("Save failed: {e}"))),
                 }
             });
         }
     };
 
+    /* ---------- UI pieces ---------- */
+    let prompt_form = move || {
+        view! {
+            <div class="ai-prompt-form">
+                /* description */
+                <div class="form-group">
+                    <label>"Describe the scene"</label>
+                    <textarea rows="4"
+                        on:input=move |e| set_desc.set(
+                            event_target::<web_sys::HtmlTextAreaElement>(&e).value()
+                        )/>
+                </div>
+
+                /* reference scene */
+                <div class="form-group">
+                    <label>"Reference Scene"</label>
+                    <select on:change=move |e| {
+                        let v = event_target::<web_sys::HtmlSelectElement>(&e).value();
+                        set_ref.set(if v.is_empty() { None } else { Some(v) });
+                    }>
+                        <option value="">"None"</option>
+                        {move || project_signal
+                            .get()
+                            .map(|p| p.scenes.values().map(|s| {
+                                view! { <option value={s.id.clone()}>{s.name.clone()}</option> }
+                            }).collect::<Vec<_>>())
+                            .unwrap_or_default()}
+                    </select>
+                </div>
+
+                /* tags */
+                <div class="form-group">
+                    <label>"Tags"</label>
+                    <div class="tags-container">
+                        {move || all_tags.get().into_iter().map(|tg| {
+                            let label    = tg.clone();                 // keep a copy for rendering
+                            let selected = tags.with(|ts| ts.contains(&tg));
+                            view! {
+                                <div class=move || if selected { "tag selected" } else { "tag" }
+                                     on:click=move |_| toggle_tag(tg.clone())>
+                                    {label}
+                                </div>
+                            }
+                        }).collect::<Vec<_>>()}
+                    </div>
+                </div>
+
+                /* options */
+                <div class="form-group options">
+                    <label>
+                        <input type="checkbox"
+                               checked=use_trans
+                               on:change=move |e| set_ut.set(
+                                   event_target::<web_sys::HtmlInputElement>(&e).checked()
+                               )/>
+                        "Use transitions"
+                    </label>
+                    <label>
+                        <input type="checkbox"
+                               checked=add_rand
+                               on:change=move |e| set_rand.set(
+                                   event_target::<web_sys::HtmlInputElement>(&e).checked()
+                               )/>
+                        "Add randomness"
+                    </label>
+                </div>
+
+                /* inline error */
+                <Show
+                    when=move || err_msg.get().is_some()
+                    fallback=|| view!{ <div class="error-message" style="display:none;" /> }
+                >
+                    {move || view!{ <div class="error-message">{err_msg.get().unwrap()}</div> }}
+                </Show>
+            </div>
+        }
+    };
+
+    /* called only when `generated` is Some – no branching inside */
+    let generated_preview = move || {
+        let sc = generated.get().unwrap(); // safety: guarded by `<Show>`
+        let name = sc.scene.name.clone();
+        let description = sc.scene.description.clone().unwrap_or_default();
+        let explanation = sc.explanation.clone();
+        let cc_values = sc.scene.cc_values.clone();
+        let count = cc_values.len();
+
+        view! {
+            <>
+                <h3>{"Generated: "}{name}</h3>
+                <p>{description}</p>
+
+                <div class="cc-value-list">
+                    {cc_values.values().take(5).map(|cc| {
+                        let nm = cc.name.clone().unwrap_or_else(|| format!("CC {}", cc.cc_number));
+                        view! {
+                            <div class="cc-value-item">
+                                <span class="cc-name">{nm}</span>
+                                <span class="cc-value">{cc.value}</span>
+                            </div>
+                        }
+                    }).collect::<Vec<_>>()}
+
+                    <MoreCcValues count={count}/>
+                </div>
+
+                <p class="explanation">{explanation}</p>
+            </>
+        }
+    };
+
+    /* ---------- top‑level dialog ---------- */
     view! {
         <div class="dialog-overlay">
             <div class="dialog ai-prompt-dialog">
+
+                /* header */
                 <div class="dialog-header">
                     <h2>"AI Scene Generator"</h2>
-                    <button
-                        class="close-button"
-                        on:click=move |_| on_close(())
-                    >
+                    <button class="close-button"
+                            on:click=move |_| on_close.clone().run(())>
                         "×"
                     </button>
                 </div>
 
+                /* content */
                 <div class="dialog-content">
-                    {move || if generated_scene.get().is_some() {
-                        // Show the generated scene
-                        let scene = generated_scene.get().unwrap();
-
-                        view! {
-                            <div class="generated-scene">
-                                <h3>{"Generated Scene: "}{scene.scene.name.clone()}</h3>
-
-                                <div class="scene-info">
-                                    <div class="form-group">
-                                        <label>"Description"</label>
-                                        <p>{scene.scene.description.clone().unwrap_or_default()}</p>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label>"AI Explanation"</label>
-                                        <p class="explanation">{scene.explanation.clone()}</p>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label>"CC Values"</label>
-                                        <div class="cc-value-list">
-                                            {scene.scene.cc_values.values().take(5).map(|cc| {
-                                                let name = cc.name.clone().unwrap_or_else(|| format!("CC {}", cc.cc_number));
-                                                view! {
-                                                    <div class="cc-value-item">
-                                                        <span class="cc-name">{name}</span>
-                                                        <span class="cc-value">{cc.value}</span>
-                                                    </div>
-                                                }
-                                            }).collect::<Vec<_>>()}
-
-                                            {move || if scene.scene.cc_values.len() > 5 {
-                                                let remaining = scene.scene.cc_values.len() - 5;
-                                                view! { <div class="more-cc-values">{"... and "}{remaining}{" more"}</div> }
-                                            } else {
-                                                view! {}
-                                            }}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        }
-                    } else {
-                        // Show the prompt form
-                        view! {
-                            <div class="ai-prompt-form">
-                                <div class="form-group">
-                                    <label for="scene-description">"Describe the scene you want"</label>
-                                    <textarea
-                                        id="scene-description"
-                                        rows="4"
-                                        placeholder="Example: A dark, filtered intro that slowly opens up with increasing resonance"
-                                        value=description
-                                        on:input=move |e| {
-                                            let target = event_target::<web_sys::HtmlTextAreaElement>(&e);
-                                            set_description.set(target.value());
-                                        }
-                                    ></textarea>
-                                </div>
-
-                                <div class="form-group">
-                                    <label>"Reference Scene (optional)"</label>
-                                    <select
-                                        on:change=move |e| {
-                                            let target = event_target::<web_sys::HtmlSelectElement>(&e);
-                                            let value = target.value();
-                                            set_reference_scene.set(if value.is_empty() { None } else { Some(value) });
-                                        }
-                                    >
-                                        <option value="">"None"</option>
-                                        {move || if let Some(p) = project.clone() {
-                                            p.scenes.values().map(|scene| {
-                                                view! {
-                                                    <option value={scene.id.clone()}>{scene.name.clone()}</option>
-                                                }
-                                            }).collect::<Vec<_>>()
-                                        } else {
-                                            vec![]
-                                        }}
-                                    </select>
-                                </div>
-
-                                <div class="form-group">
-                                    <label>"Tags (optional)"</label>
-                                    <div class="tags-container">
-                                        {move || available_tags.get().into_iter().map(|tag| {
-                                            let tag_clone = tag.clone();
-                                            let is_selected = selected_tags.with(|tags| tags.contains(&tag));
-
-                                            view! {
-                                                <div
-                                                    class=move || if is_selected() { "tag selected" } else { "tag" }
-                                                    on:click=move |_| toggle_tag(tag_clone.clone())
-                                                >
-                                                    {tag_clone}
-                                                </div>
-                                            }
-                                        }).collect::<Vec<_>>()}
-                                    </div>
-                                </div>
-
-                                <div class="form-group options">
-                                    <div class="option-item">
-                                        <label class="checkbox-label">
-                                            <input
-                                                type="checkbox"
-                                                checked=use_transitions
-                                                on:change=move |e| {
-                                                    let target = event_target::<web_sys::HtmlInputElement>(&e);
-                                                    set_use_transitions.set(target.checked());
-                                                }
-                                            />
-                                            "Use transitions"
-                                        </label>
-                                    </div>
-
-                                    <div class="option-item">
-                                        <label class="checkbox-label">
-                                            <input
-                                                type="checkbox"
-                                                checked=add_randomness
-                                                on:change=move |e| {
-                                                    let target = event_target::<web_sys::HtmlInputElement>(&e);
-                                                    set_add_randomness.set(target.checked());
-                                                }
-                                            />
-                                            "Add some randomness"
-                                        </label>
-                                    </div>
-                                </div>
-
-                                {move || if let Some(error) = error_message.get() {
-                                    view! { <div class="error-message">{error}</div> }
-                                } else {
-                                    view! {}
-                                }}
-                            </div>
-                        }
-                    }}
+                    <Show when=move || generated.get().is_some()
+                          fallback=prompt_form >
+                        {generated_preview}
+                    </Show>
                 </div>
 
+                /* footer */
                 <div class="dialog-footer">
-                    <button
-                        class="button secondary"
-                        on:click=move |_| on_close(())
-                    >
+                    <button class="button secondary"
+                            on:click=move |_| on_close.clone().run(())>
                         "Cancel"
                     </button>
 
-                    {move || if generated_scene.get().is_some() {
-                        view! {
+                    <Show when=move || generated.get().is_some()
+                          fallback=move || {
+                              let disabled =
+                                  description.with(|d| d.trim().is_empty()) || is_gen.get();
+                              view! {
+                                  <button class="button primary"
+                                          disabled=move || disabled
+                                          on:click=gen_click>
+                                      {move || if is_gen.get() { "Generating…" } else { "Generate Scene" }}
+                                  </button>
+                              }
+                          }>
+                        {view! {
                             <>
-                                <button
-                                    class="button secondary"
-                                    on:click=move |_| set_generated_scene.set(None)
-                                >
+                                <button class="button secondary"
+                                        on:click=move |_| set_gen.set(None)>
                                     "Generate Another"
                                 </button>
-                                <button
-                                    class="button primary"
-                                    on:click=handle_save
-                                >
+                                <button class="button primary"
+                                        on:click=save_click>
                                     "Save Scene"
                                 </button>
                             </>
-                        }
-                    } else {
-                        view! {
-                            <button
-                                class="button primary"
-                                disabled=move || description.get().trim().is_empty() || is_generating.get()
-                                on:click=handle_generate
-                            >
-                                {move || if is_generating.get() { "Generating..." } else { "Generate Scene" }}
-                            </button>
-                        }
-                    }}
+                        }}
+                    </Show>
                 </div>
             </div>
         </div>
     }
-}
-
-// Helper function to get the event target
-fn event_target<T: wasm_bindgen::JsCast>(event: &leptos::ev::Event) -> T {
-    event.target().unwrap().unchecked_into::<T>()
 }

@@ -1,7 +1,7 @@
 use midir::{MidiInput, MidiOutput};
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Structure to represent a MIDI device
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -69,7 +69,13 @@ impl DeviceRegistry {
                     let id = format!("out:{}", port_name);
 
                     // Skip if this is already registered as an input
-                    if self.devices.lock().unwrap().values().any(|d| d.name == port_name && d.is_input) {
+                    if self
+                        .devices
+                        .lock()
+                        .unwrap()
+                        .values()
+                        .any(|d| d.name == port_name && d.is_input)
+                    {
                         continue;
                     }
 
@@ -100,7 +106,8 @@ impl DeviceRegistry {
     /// Get devices that can be used as controllers
     pub fn get_controller_devices(&self) -> Vec<MidiDevice> {
         let devices = self.devices.lock().unwrap();
-        devices.values()
+        devices
+            .values()
             .filter(|d| d.is_controller)
             .cloned()
             .collect()
@@ -109,10 +116,7 @@ impl DeviceRegistry {
     /// Get devices that can be used as MIDI outputs
     pub fn get_output_devices(&self) -> Vec<MidiDevice> {
         let devices = self.devices.lock().unwrap();
-        devices.values()
-            .filter(|d| !d.is_input)
-            .cloned()
-            .collect()
+        devices.values().filter(|d| !d.is_input).cloned().collect()
     }
 
     /// Get a specific device by ID

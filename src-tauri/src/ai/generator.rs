@@ -1,11 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
-use crate::models::project::Project;
-use crate::models::scene::Scene;
 use crate::models::cc::CCValue;
 use crate::models::cc::TransitionCurve;
+use crate::models::scene::Scene;
 
 /// Parameters for AI scene generation
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,7 +85,10 @@ impl SceneGenerator {
 
         let mut scene = Scene::new(
             &Uuid::new_v4().to_string(),
-            &format!("Generated: {}", self.get_name_from_description(&params.description)),
+            &format!(
+                "Generated: {}",
+                self.get_name_from_description(&params.description)
+            ),
         );
 
         scene.description = Some(params.description.clone());
@@ -108,10 +110,7 @@ impl SceneGenerator {
         // Generate an explanation
         let explanation = self.generate_explanation(&scene, &params);
 
-        Ok(GeneratedScene {
-            scene,
-            explanation,
-        })
+        Ok(GeneratedScene { scene, explanation })
     }
 
     /// Extract a short name from a description
@@ -136,7 +135,12 @@ impl SceneGenerator {
 
             if name_words.is_empty() {
                 // Fall back to first few words if no significant words found
-                words.iter().take(3).map(|w| *w).collect::<Vec<&str>>().join(" ")
+                words
+                    .iter()
+                    .take(3)
+                    .map(|w| *w)
+                    .collect::<Vec<&str>>()
+                    .join(" ")
             } else {
                 name_words.join(" ")
             }
@@ -144,7 +148,11 @@ impl SceneGenerator {
     }
 
     /// Generate a CC value based on a definition and params
-    fn generate_cc_value_for_def(&self, cc_def: &CCDefinitionRef, params: &GenerationParams) -> Option<CCValue> {
+    fn generate_cc_value_for_def(
+        &self,
+        cc_def: &CCDefinitionRef,
+        params: &GenerationParams,
+    ) -> Option<CCValue> {
         let mut value = 0;
         let description = params.description.to_lowercase();
 
@@ -165,7 +173,6 @@ impl SceneGenerator {
                 }
             }
         }
-
         // For pan (CC 10)
         else if cc_def.cc_number == 10 {
             if cc_def.name.to_lowercase().contains("pan") {
@@ -183,16 +190,20 @@ impl SceneGenerator {
                 }
             }
         }
-
         // For filter cutoff (CC 74)
         else if cc_def.cc_number == 74 {
-            if cc_def.name.to_lowercase().contains("filter") ||
-                cc_def.name.to_lowercase().contains("cutoff") {
-                if description.contains("bright") || description.contains("open") ||
-                    description.contains("clear") {
+            if cc_def.name.to_lowercase().contains("filter")
+                || cc_def.name.to_lowercase().contains("cutoff")
+            {
+                if description.contains("bright")
+                    || description.contains("open")
+                    || description.contains("clear")
+                {
                     value = 120;
-                } else if description.contains("dark") || description.contains("muffled") ||
-                    description.contains("filtered") {
+                } else if description.contains("dark")
+                    || description.contains("muffled")
+                    || description.contains("filtered")
+                {
                     value = 40;
                 } else if description.contains("warm") {
                     value = 80;
@@ -201,13 +212,15 @@ impl SceneGenerator {
                 }
             }
         }
-
         // For resonance (CC 71)
         else if cc_def.cc_number == 71 {
-            if cc_def.name.to_lowercase().contains("res") ||
-                cc_def.name.to_lowercase().contains("resonance") {
-                if description.contains("resonant") || description.contains("harsh") ||
-                    description.contains("squelch") {
+            if cc_def.name.to_lowercase().contains("res")
+                || cc_def.name.to_lowercase().contains("resonance")
+            {
+                if description.contains("resonant")
+                    || description.contains("harsh")
+                    || description.contains("squelch")
+                {
                     value = 100;
                 } else if description.contains("smooth") || description.contains("soft") {
                     value = 20;
@@ -216,7 +229,6 @@ impl SceneGenerator {
                 }
             }
         }
-
         // For other CCs, use a more generic approach
         else {
             // Map the description sentiment to a value
@@ -227,7 +239,9 @@ impl SceneGenerator {
                 let random_factor = (std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
-                    .subsec_nanos() % 20) as i32 - 10; // -10 to +10
+                    .subsec_nanos()
+                    % 20) as i32
+                    - 10; // -10 to +10
 
                 value = ((sentiment_value as i32 + random_factor).max(0).min(127)) as u8;
             } else {
@@ -250,14 +264,25 @@ impl SceneGenerator {
 
         // Positive words increase the value
         let positive_words = [
-            "high", "open", "bright", "intense", "maximum", "loud", "strong",
-            "fast", "quick", "energetic", "vibrant", "rich", "full"
+            "high",
+            "open",
+            "bright",
+            "intense",
+            "maximum",
+            "loud",
+            "strong",
+            "fast",
+            "quick",
+            "energetic",
+            "vibrant",
+            "rich",
+            "full",
         ];
 
         // Negative words decrease the value
         let negative_words = [
-            "low", "closed", "dark", "subtle", "minimum", "quiet", "weak",
-            "slow", "gentle", "calm", "soft", "thin", "empty"
+            "low", "closed", "dark", "subtle", "minimum", "quiet", "weak", "slow", "gentle",
+            "calm", "soft", "thin", "empty",
         ];
 
         // Calculate a base value
@@ -310,8 +335,11 @@ impl SceneGenerator {
             let name = cc_value.name.as_deref().unwrap_or("").to_lowercase();
 
             // Common parameters that benefit from transitions
-            if name.contains("filter") || name.contains("volume") ||
-                name.contains("pan") || name.contains("pitch") {
+            if name.contains("filter")
+                || name.contains("volume")
+                || name.contains("pan")
+                || name.contains("pitch")
+            {
                 cc_value.transition = true;
                 cc_value.curve = curve;
 
@@ -343,11 +371,7 @@ impl SceneGenerator {
         for cc in scene.cc_values_vec() {
             let name = cc.name.as_deref().unwrap_or("unnamed");
 
-            explanation.push_str(&format!(
-                "- Set {} to {} because ",
-                name,
-                cc.value
-            ));
+            explanation.push_str(&format!("- Set {} to {} because ", name, cc.value));
 
             // Simple explanation based on value range
             if cc.value > 100 {
@@ -396,10 +420,7 @@ mod tests {
             "Bright airy atmosphere"
         );
 
-        assert_eq!(
-            generator.get_name_from_description("Test"),
-            "Test"
-        );
+        assert_eq!(generator.get_name_from_description("Test"), "Test");
     }
 
     #[test]

@@ -1,14 +1,12 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 
+use crate::midi::controller::{Color, ControllerEvent, GridController};
+use crate::midi::devices::{DeviceRegistry, MidiDevice};
+use crate::midi::engine::{MidiCommand, MidiEngine};
 use crate::models::project::Project;
 use crate::models::scene::Scene;
-use crate::models::cc::CCValue;
-use crate::project::storage::{ProjectStorage, StorageError, ProjectMeta};
-use crate::midi::engine::{MidiEngine, MidiCommand};
-use crate::midi::devices::{DeviceRegistry, MidiDevice};
-use crate::midi::controller::{GridController, ControllerEvent, Color};
+use crate::project::storage::{ProjectMeta, ProjectStorage, StorageError};
 
 /// Errors specific to project management
 #[derive(Debug)]
@@ -40,7 +38,9 @@ impl std::fmt::Display for ProjectManagerError {
             ProjectManagerError::StorageError(e) => write!(f, "Storage error: {}", e),
             ProjectManagerError::MidiError(e) => write!(f, "MIDI error: {}", e),
             ProjectManagerError::InvalidSceneId(id) => write!(f, "Invalid scene ID: {}", id),
-            ProjectManagerError::InvalidGridPosition(pos) => write!(f, "Invalid grid position: {}", pos),
+            ProjectManagerError::InvalidGridPosition(pos) => {
+                write!(f, "Invalid grid position: {}", pos)
+            }
             ProjectManagerError::NoActiveProject => write!(f, "No active project"),
             ProjectManagerError::NoActiveScene => write!(f, "No active scene"),
             ProjectManagerError::NoAvailableDevices => write!(f, "No available MIDI devices"),
@@ -121,7 +121,9 @@ impl ProjectManager {
 
     /// Get a list of all projects
     pub fn list_projects(&self) -> Result<Vec<ProjectMeta>> {
-        self.storage.list_projects().map_err(ProjectManagerError::StorageError)
+        self.storage
+            .list_projects()
+            .map_err(ProjectManagerError::StorageError)
     }
 
     /// Load a project and set it as active
@@ -160,7 +162,7 @@ impl ProjectManager {
             Some(project) => {
                 self.storage.save_project(project)?;
                 Ok(())
-            },
+            }
             None => Err(ProjectManagerError::NoActiveProject),
         }
     }
@@ -185,7 +187,7 @@ impl ProjectManager {
                 self.storage.save_project(project)?;
 
                 Ok(id)
-            },
+            }
             None => Err(ProjectManagerError::NoActiveProject),
         }
     }
@@ -197,22 +199,24 @@ impl ProjectManager {
         match &*active_project {
             Some(project) => {
                 // Find the scene
-                let scene = project.get_scene(scene_id)
+                let scene = project
+                    .get_scene(scene_id)
                     .ok_or_else(|| ProjectManagerError::InvalidSceneId(scene_id.to_string()))?;
 
                 // Activate the scene via MIDI engine
                 let midi_engine = self.midi_engine.lock().unwrap();
 
-                let quantize_beats = if scene.trigger_mode != crate::models::scene::TriggerMode::Immediate {
-                    Some(match scene.trigger_mode {
-                        crate::models::scene::TriggerMode::NextBeat => 1,
-                        crate::models::scene::TriggerMode::Beats(n) => n,
-                        crate::models::scene::TriggerMode::NextBar => 4, // Assuming 4 beats per bar
-                        _ => 0,
-                    })
-                } else {
-                    None
-                };
+                let quantize_beats =
+                    if scene.trigger_mode != crate::models::scene::TriggerMode::Immediate {
+                        Some(match scene.trigger_mode {
+                            crate::models::scene::TriggerMode::NextBeat => 1,
+                            crate::models::scene::TriggerMode::Beats(n) => n,
+                            crate::models::scene::TriggerMode::NextBar => 4, // Assuming 4 beats per bar
+                            _ => 0,
+                        })
+                    } else {
+                        None
+                    };
 
                 midi_engine.send_command(MidiCommand::ActivateScene {
                     scene: scene.clone(),
@@ -224,7 +228,7 @@ impl ProjectManager {
                 *active_scene_id = Some(scene_id.to_string());
 
                 Ok(())
-            },
+            }
             None => Err(ProjectManagerError::NoActiveProject),
         }
     }
@@ -237,11 +241,12 @@ impl ProjectManager {
         match (&*active_project, &*active_scene_id) {
             (Some(project), Some(scene_id)) => {
                 // Find the scene
-                let scene = project.get_scene(scene_id)
+                let scene = project
+                    .get_scene(scene_id)
                     .ok_or_else(|| ProjectManagerError::InvalidSceneId(scene_id.to_string()))?;
 
                 Ok(scene.clone())
-            },
+            }
             (None, _) => Err(ProjectManagerError::NoActiveProject),
             (_, None) => Err(ProjectManagerError::NoActiveScene),
         }
@@ -266,7 +271,7 @@ impl ProjectManager {
                 self.update_controller_grid()?;
 
                 Ok(())
-            },
+            }
             None => Err(ProjectManagerError::NoActiveProject),
         }
     }
@@ -274,8 +279,9 @@ impl ProjectManager {
     /// Connect to a MIDI controller
     pub fn connect_controller(&self, device_id: &str) -> Result<()> {
         // Find the device
-        let device = self.device_registry.get_device(device_id)
-            .ok_or_else(|| ProjectManagerError::MidiError(format!("Device not found: {}", device_id)))?;
+        let device = self.device_registry.get_device(device_id).ok_or_else(|| {
+            ProjectManagerError::MidiError(format!("Device not found: {}", device_id))
+        })?;
 
         // Create the controller
         let mut controller = crate::midi::controller::ControllerFactory::create_controller(device)?;
@@ -311,7 +317,7 @@ impl ProjectManager {
                             }
                         }
                     }
-                },
+                }
                 _ => {} // Ignore other events for now
             }
         }));
@@ -339,7 +345,8 @@ impl ProjectManager {
             for (&position, scene_id) in &project.grid_assignments {
                 if let Some(scene) = project.get_scene(scene_id) {
                     // Default color if not specified
-                    let color = scene.color
+                    let color = scene
+                        .color
                         .map(|(r, g, b)| Color::new(r, g, b))
                         .unwrap_or(Color::GREEN);
 
@@ -398,7 +405,7 @@ impl ProjectManager {
             Some(project) => {
                 self.storage.export_project(&project.id, path)?;
                 Ok(())
-            },
+            }
             None => Err(ProjectManagerError::NoActiveProject),
         }
     }
@@ -422,8 +429,7 @@ impl ProjectManager {
     }
 
     pub fn get_midi_devices() -> Result<Vec<MidiDevice>> {
-        let device_registry = DeviceRegistryFactory::create()
-            .map_err(|e| e.to_string())?;
+        let device_registry = DeviceRegistryFactory::create().map_err(|e| e.to_string())?;
 
         Ok(device_registry.get_all_devices())
     }

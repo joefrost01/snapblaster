@@ -1,8 +1,8 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::io;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use crate::models::project::Project;
 
@@ -86,8 +86,12 @@ impl ProjectStorage {
 
     /// Initialize the storage with default projects directory
     pub fn init() -> Result<Self, StorageError> {
-        let mut projects_dir = dirs::data_local_dir()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find local data directory"))?;
+        let mut projects_dir = dirs::data_local_dir().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "Could not find local data directory",
+            )
+        })?;
 
         projects_dir.push("snap-blaster");
         projects_dir.push("projects");
@@ -237,8 +241,8 @@ impl ProjectStorage {
         project.add_cc_definition(resonance);
 
         // Add a default scene
-        use crate::models::scene::Scene;
         use crate::models::cc::CCValue;
+        use crate::models::scene::Scene;
 
         let mut default_scene = Scene::new("default", "Default");
         default_scene.description = Some("Initial state".to_string());

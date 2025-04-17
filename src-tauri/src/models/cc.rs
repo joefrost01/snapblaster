@@ -1,5 +1,4 @@
-use std::time::Duration;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Types of transition curves for CC value changes
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]

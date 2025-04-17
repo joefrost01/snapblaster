@@ -3,11 +3,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use midir::{MidiOutput, MidiOutputPort, MidiOutputConnection};
+use midir::{MidiOutput, MidiOutputConnection};
 
-use crate::models::cc::CCValue;
-use crate::models::scene::Scene;
 use crate::midi::devices::MidiDevice;
+use crate::models::scene::Scene;
 
 /// Types of commands that can be sent to the MIDI engine
 pub enum MidiCommand {
@@ -157,14 +156,19 @@ impl MidiEngine {
 
         // Find the port by name
         let ports = midi_out.ports();
-        let port = ports.iter()
+        let port = ports
+            .iter()
             .find(|p| {
-                midi_out.port_name(p).map(|name| name == device.name).unwrap_or(false)
+                midi_out
+                    .port_name(p)
+                    .map(|name| name == device.name)
+                    .unwrap_or(false)
             })
             .ok_or_else(|| format!("Could not find MIDI device: {}", device.name))?;
 
         // Connect to the port
-        let connection = midi_out.connect(port, "midi-connection")
+        let connection = midi_out
+            .connect(port, "midi-connection")
             .map_err(|e| format!("Failed to connect to MIDI port: {}", e))?;
         self.connections.push(connection);
 
